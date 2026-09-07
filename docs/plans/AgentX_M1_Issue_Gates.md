@@ -1,24 +1,24 @@
 # AgentX M1 工单门禁
 
-日期：2026-09-07。当前：本地文档已按获批 M1 计划同步，正在发布与校验；M1 范围的远程操作已获授权，合并仅限 m1，master 不动。**没有已发布 Issue 编号、已完成 triage、已合并 PR 或可开工的开发工单。**
+日期：2026-09-07。当前：11 个正式 Issue 与分拣简报已发布，类别和状态标签已补齐；文档基线已推送，尚无已合并 PR。合并仅限 m1，master 不动。**开发工单仍在等待实际依赖，不因正式发布而提前开工。**
 
 ## 发布与执行顺序
 
-以下全是计划标识，发布时必须记录真实 URL。父 PRD 只维护需求基线，子工单绑定而不重复整份 PRD。草稿保存在忽略的本地验证目录，通过授权后按顺序用真实编号替换依赖；带待替换引用的正文不能直接发布。
+下列保留计划标识，并绑定实际工单。父 PRD 只维护需求基线，子工单绑定而不重复整份 PRD。发布正文已替换真实依赖和固定提交引用；分拣简报保留原文必读清单。
 
-| 标识 | 拟定标题 | 类别 | 依赖 | 远程状态 |
+| 标识 | 标题 | 类别 | 依赖 | 远程状态 |
 | --- | --- | --- | --- | --- |
-| PRD-M1 | AgentX_Desktop_PRD：V1 基线与 M1 首个真实任务闭环 | enhancement | 用户已确认的 PRD/M1 计划 | 未发布 |
-| D-global | 验收并入库 AgentX 全局设计基线 | design-input | 无开发依赖 | 未发布 |
-| D-app-shell | 验收并入库 AgentX 外框默认设计 | design-input | D-global 合并 | 未发布 |
-| D-workbench | 验收并入库 AgentX 工作台默认设计 | design-input | D-global 合并 | 未发布 |
-| D-settings | 验收并入库 AgentX 设置默认设计 | design-input | D-global 合并 | 未发布 |
-| M1-01 | 桌面基础外框与真实打包启动 | enhancement | D-global、D-app-shell 合并 | 未发布 |
-| M1-02 | DeepSeek 模型设置与系统凭据保护 | enhancement | M1-01、D-settings 合并 | 未发布 |
-| M1-03 | 本地项目关联与真实会话入口 | enhancement | M1-01 合并 | 未发布 |
-| M1-04 | 首次真实执行与原生审批控制 | enhancement | M1-02、M1-03、D-workbench 合并 | 未发布 |
-| M1-05 | 检查实际结果、续轮与已结束历史恢复 | enhancement | M1-04 合并；外框基础为传递依赖 | 未发布 |
-| M1-06 | 任务存活、托盘与退出核对 | enhancement | M1-04、M1-05 合并 | 未发布 |
+| [PRD-M1](https://github.com/mahiro424/AgentX/issues/1) | AgentX_Desktop_PRD：V1 基线与 M1 首个真实任务闭环 | enhancement | 用户已确认的 PRD/M1 计划 | ready-for-agent |
+| [D-global](https://github.com/mahiro424/AgentX/issues/2) | 验收并入库 AgentX 全局设计基线 | design-input | 无开发依赖 | ready-for-agent |
+| [D-app-shell](https://github.com/mahiro424/AgentX/issues/3) | 验收并入库 AgentX 外框默认设计 | design-input | D-global 合并 | ready-for-human |
+| [D-workbench](https://github.com/mahiro424/AgentX/issues/4) | 验收并入库 AgentX 工作台默认设计 | design-input | D-global 合并 | ready-for-human |
+| [D-settings](https://github.com/mahiro424/AgentX/issues/5) | 验收并入库 AgentX 设置默认设计 | design-input | D-global 合并 | ready-for-human |
+| [M1-01](https://github.com/mahiro424/AgentX/issues/6) | 桌面基础外框与真实打包启动 | enhancement | D-global、D-app-shell 合并 | ready-for-human |
+| [M1-02](https://github.com/mahiro424/AgentX/issues/7) | DeepSeek 模型设置与系统凭据保护 | enhancement | M1-01、D-settings 合并 | ready-for-human |
+| [M1-03](https://github.com/mahiro424/AgentX/issues/8) | 本地项目关联与真实会话入口 | enhancement | M1-01 合并 | ready-for-human |
+| [M1-04](https://github.com/mahiro424/AgentX/issues/9) | 首次真实执行与原生审批控制 | enhancement | M1-02、M1-03、D-workbench 合并 | ready-for-human |
+| [M1-05](https://github.com/mahiro424/AgentX/issues/10) | 检查实际结果、续轮与已结束历史恢复 | enhancement | M1-04 合并；外框基础为传递依赖 | ready-for-human |
+| [M1-06](https://github.com/mahiro424/AgentX/issues/11) | 任务存活、托盘与退出核对 | enhancement | M1-04、M1-05 合并 | ready-for-human |
 
 M1-06 是在已合并外框上的生命周期补全，不把“全部 app-shell V1 功能完成”反过来设成工作台的前置条件；功能页依赖的是 M1-01 外框基础，避免循环依赖。
 
@@ -47,4 +47,6 @@ GitHub 可读的文档引用应使用仓库内相对路径或已存在的固定�
 3. 每个切片分别交付测试结果、剩余状态和 PR；按已获授权仅合入 m1，之后才进入依赖它的切片；人工检查仍单独保留。
 4. 最后按 PRD `ACCEPTANCE-M1` 现场验收，不将无密钥自动测试或历史 G1 当成 M1 已通过。
 
-文档 CI 已准备，尚未产生远程检查结果；本地文档检查不是远程 CI。文档基线 PR 的实际检查情况须如实展示，不能提前填写“CI 已通过”；Windows 产品 CI 由 M1-01 建立。
+文档 CI 首个输入快照已通过：[2460496 的检查](https://github.com/mahiro424/AgentX/actions/runs/34137999287)。后续 PR 必须检查当前 head 对应的结果；本地检查不代替远程 CI。Windows 产品 CI 仍由 M1-01 建立。
+
+全局设计输入核对见 [D-global 记录](../design/M1_Global_Review.md)，尚不代表三个页面 Design Issue 或产品实现完成。
