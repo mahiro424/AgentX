@@ -22,6 +22,16 @@ async function launch(existingData) {
     const page = await app.firstWindow();
     await page.waitForLoadState('load');
     page.setDefaultTimeout(5000);
+    // 虚拟显示器可能限制首次显示尺寸，测试显式设置真实窗口，不能假定构造参数就是视口。
+    const geometry = await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      const before = window.getSize();
+      window.show();
+      window.setSize(1280, 820);
+      return { before, after: window.getSize() };
+    });
+    if (!existingData) await page.waitForFunction(() => innerWidth === 1280);
+    console.log(`桌面测试尺寸：${JSON.stringify(geometry)}`);
     return { app, page, data };
   } catch (error) {
     await app.close();
