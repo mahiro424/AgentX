@@ -1,0 +1,11 @@
+# G0 验证缓存、引擎二进制、隔离数据及原始运行证据，不属于产品源码。
+/.mvp-g0/
+/.mvp-g1/
+
+# 桌面工程依赖、编译产物和本地开发数据。
+/node_modules/
+/.webpack/
+/out/
+/.cache/
+/.local-validation/
+/.agentx-dev/

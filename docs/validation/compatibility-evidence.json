@@ -1,0 +1,67 @@
+{
+  "date": "2026-09-07",
+  "scope": "历史 headless 核心验证，不是 M1 产品验收",
+  "engineVersion": "0.153.4",
+  "model": "deepseek-v4-flash",
+  "patches": 0,
+  "firstG0": {
+    "status": "失败",
+    "counts": {
+      "通过": 12,
+      "失败": 1,
+      "受阻": 1,
+      "未执行": 3
+    },
+    "reason": "严格共享技能来源隔离不满足"
+  },
+  "latestG0": {
+    "runId": "2026-09-07T13-00-47-387Z-bc1eaf8b",
+    "sha256": "10456e11187d207a08854caa8db6c23f5215a047da97aef1ff738f3715cd0a13",
+    "scriptSha256": "1211b4a0f5f0e5247a2acb9616f054e4633eeed4fcea534e57c99d4d49e577ed",
+    "counts": {
+      "通过": 16,
+      "失败": 0,
+      "受阻": 2,
+      "未执行": 0
+    }
+  },
+  "firstG1": {
+    "reportSha256": "91209f87c0809c4f7982c5e41740072184b9fc1cff51cd9442539362a1528390",
+    "status": "失败",
+    "reason": "启动应答后立即停止，未取得活动轮开始/终态事实"
+  },
+  "finalG1": {
+    "reportSha256": "87f9e8f0db5b924b23ea1bdd4ce55179667fc9a7389c53bdda24b3f7d8f3ba0f",
+    "scriptSha256": "c145ada9ca6e39a8747657aa71e432d85e2534e426c80f743ee65b03f45d46be",
+    "result": "真实工作与已测控制通过；未测范围仍保留",
+    "changedFiles": [
+      "total.cjs",
+      "report.cjs"
+    ],
+    "testsPassed": 4,
+    "independentlyVerified": true,
+    "sameThreadContinuation": true,
+    "historyTurns": 3,
+    "interruptScope": "无工具文本轮，收到权威 interrupted 终态",
+    "fullProcessTreeVerified": false
+  },
+  "sourceDocuments": [
+    {
+      "name": "AgentX_G0_MVP_Report.md",
+      "sha256": "8c30b2b64ef9be4c0f66cdb37bd0e74b71d8ecb399e5fe749923ba403de13b83",
+      "location": "本地历史留档，不对外上传原件"
+    },
+    {
+      "name": "AgentX_G1_Core_Compatibility_Report.md",
+      "sha256": "abf13b1095f5a57e0c2b6b953afdecf4f7b0931ecd246b49502dec30db734564",
+      "location": "本地历史留档，不对外上传原件"
+    }
+  ],
+  "notProven": [
+    "完全技能隔离或零后台联网",
+    "真实产品界面、SQLite与凭据打包",
+    "原生审批允许/拒绝与工具执行中停止",
+    "跨进程历史恢复、完整进程树回收",
+    "办公、浏览器、电脑操作与完整 V1"
+  ]
+}
