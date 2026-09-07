@@ -6,6 +6,8 @@
 
 当前为 **M1-01 外框切片**：真实桌面窗口、空工作台、侧栏、通用主题/缩放、就地错误和有限 IPC。模型连接、项目关联及 Agent 执行尚未接入，发送按钮保持禁用。工作台草稿此阶段仅在窗口内保留，不承诺关闭后的恢复。
 
+实际测试、失败修复边界与截图见 [M1-01 验证记录](docs/validation/M1-01_Foundation_Validation.md)。
+
 [M1 计划与工单](docs/plans/AgentX_M1_Issue_Gates.md)记录依赖与验收门禁；需求以 [PRD](docs/prd/AgentX_Desktop_PRD.md) 为准。所有切片单独分支/PR，只向 `m1` 集成，`master` 不动。完整 M1 与人工设计 QA 尚未完成。
 
 ## 本地运行

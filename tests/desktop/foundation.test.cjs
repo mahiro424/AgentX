@@ -134,6 +134,7 @@ test('compact：真实窗口缩小时收起侧栏，可恢复并用键盘调宽'
   await page.getByRole('button', { name: '展开侧栏', exact: true }).click();
   await page.getByRole('complementary', { name: '侧栏' }).waitFor();
   await page.getByRole('button', { name: '收起侧栏', exact: true }).click();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '展开侧栏');
   assert.equal(await draft.inputValue(), '收起侧栏也保留输入');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   assert.equal(await page.getByRole('button', { name: '发送', exact: true }).isVisible(), true);
