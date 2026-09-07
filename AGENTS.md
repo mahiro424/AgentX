@@ -1,0 +1,50 @@
+# AgentX 协作规则
+
+AgentX 是独立开发的桌面 AI 工作台。
+
+## 工作方式
+
+- 使用简体中文交流和编写文档；文件使用 UTF-8，无 BOM。
+- 按 ai-program V1.2 当前阶段加载对应 Skill，不跳过确认和验收。
+- 修改前提交计划，获得用户明确批准后执行。
+- 保留已有未提交修改，不覆盖或删除无关内容。
+- 提交、推送、创建远程 Issue/PR、合并及发布须单独获得授权。
+- 完成后报告真实验证结果；未验证或失败的事项不得宣称通过。
+
+## M1 分支与集成
+
+- 用户已授权本次 M1 工单、提交、推送、PR，以及检查通过后的切片集成。
+- 集成分支为 `m1`；开发切片分别使用 `m1-01` 至 `m1-06`，准备分支可用 `m1-docs`、`m1-design`。分支名不加产品名前缀，后续里程碑同理。
+- 所有本轮 PR 只以 `m1` 为目标分支；不得合并进 `master`，不得改变默认分支。
+- 依赖门禁指对应 PR 已合入 `m1` 且相关检查完成；人工 UI 与最终现场验收不得自动勾选。
+- 每个切片保留独立 PR 与可追溯提交；不自动执行 reset、强制推送或数据回退。
+
+## 架构边界
+
+- 产品功能优先在产品层实现。
+- Codex App Server 作为黑盒引擎，通过公开协议与扩展机制接入。
+- 禁止将产品业务写入引擎核心。
+- 默认零补丁；必要上游改动通过单独批准的最小 Patch Queue 维护。
+
+## Agent skills
+
+### Issue 跟踪器
+
+使用 mahiro424/AgentX 的 GitHub Issues。
+见 docs/agents/issue-tracker.md。
+
+### Triage 标签
+
+采用默认类别和状态角色标签。
+见 docs/agents/triage-labels.md。
+
+### Domain 领域文档
+
+固定使用根目录 CONTEXT.md 和 docs/adr/。
+见 docs/agents/domain.md。
+
+### Repo Wiki（人类阅读）
+
+启用简体中文代码导读，固定位置为 docs/repo-wiki/。
+工作流 Skill 默认不读取 Wiki。
+见 docs/agents/wiki.md。
