@@ -1,6 +1,6 @@
 # AgentX M1 工单门禁
 
-日期：2026-09-07。当前：11 个正式 Issue 与分拣简报已发布，类别和状态标签已补齐；文档基线已推送，尚无已合并 PR。合并仅限 m1，master 不动。**开发工单仍在等待实际依赖，不因正式发布而提前开工。**
+日期：2026-09-07。当前：11 个正式 Issue 与分拣简报已发布，类别和状态标签已补齐；文档/全局设计已通过 [PR #12](https://github.com/mahiro424/AgentX/pull/12) 合入 m1；三个页面设计进入独立核验。合并仅限 m1，master 不动。**开发工单仍在等待实际依赖，不因正式发布而提前开工。**
 
 ## 发布与执行顺序
 
@@ -9,10 +9,10 @@
 | 标识 | 标题 | 类别 | 依赖 | 远程状态 |
 | --- | --- | --- | --- | --- |
 | [PRD-M1](https://github.com/mahiro424/AgentX/issues/1) | AgentX_Desktop_PRD：V1 基线与 M1 首个真实任务闭环 | enhancement | 用户已确认的 PRD/M1 计划 | ready-for-agent |
-| [D-global](https://github.com/mahiro424/AgentX/issues/2) | 验收并入库 AgentX 全局设计基线 | design-input | 无开发依赖 | ready-for-agent |
-| [D-app-shell](https://github.com/mahiro424/AgentX/issues/3) | 验收并入库 AgentX 外框默认设计 | design-input | D-global 合并 | ready-for-human |
-| [D-workbench](https://github.com/mahiro424/AgentX/issues/4) | 验收并入库 AgentX 工作台默认设计 | design-input | D-global 合并 | ready-for-human |
-| [D-settings](https://github.com/mahiro424/AgentX/issues/5) | 验收并入库 AgentX 设置默认设计 | design-input | D-global 合并 | ready-for-human |
+| [D-global](https://github.com/mahiro424/AgentX/issues/2) | 验收并入库 AgentX 全局设计基线 | design-input | 无开发依赖 | 已关闭；PR #12 已合入 m1 |
+| [D-app-shell](https://github.com/mahiro424/AgentX/issues/3) | 验收并入库 AgentX 外框默认设计 | design-input | D-global 合并 | ready-for-agent；仅设计输入核验 |
+| [D-workbench](https://github.com/mahiro424/AgentX/issues/4) | 验收并入库 AgentX 工作台默认设计 | design-input | D-global 合并 | ready-for-agent；仅设计输入核验 |
+| [D-settings](https://github.com/mahiro424/AgentX/issues/5) | 验收并入库 AgentX 设置默认设计 | design-input | D-global 合并 | ready-for-agent；仅设计输入核验 |
 | [M1-01](https://github.com/mahiro424/AgentX/issues/6) | 桌面基础外框与真实打包启动 | enhancement | D-global、D-app-shell 合并 | ready-for-human |
 | [M1-02](https://github.com/mahiro424/AgentX/issues/7) | DeepSeek 模型设置与系统凭据保护 | enhancement | M1-01、D-settings 合并 | ready-for-human |
 | [M1-03](https://github.com/mahiro424/AgentX/issues/8) | 本地项目关联与真实会话入口 | enhancement | M1-01 合并 | ready-for-human |
@@ -50,3 +50,7 @@ GitHub 可读的文档引用应使用仓库内相对路径或已存在的固定�
 文档 CI 首个输入快照已通过：[2460496 的检查](https://github.com/mahiro424/AgentX/actions/runs/34137999287)。后续 PR 必须检查当前 head 对应的结果；本地检查不代替远程 CI。Windows 产品 CI 仍由 M1-01 建立。
 
 全局设计输入核对见 [D-global 记录](../design/M1_Global_Review.md)，尚不代表三个页面 Design Issue 或产品实现完成。
+
+## 页面设计核验记录
+
+[app-shell](../design/M1_app-shell_Review.md)、[workbench](../design/M1_workbench_Review.md)、[settings](../design/M1_settings_Review.md)；本轮仅记录既有输入的核验，须对应 PR 实际合入 m1 后更新开发门禁。
