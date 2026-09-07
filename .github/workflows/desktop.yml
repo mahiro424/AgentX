@@ -1,0 +1,37 @@
+name: Windows 桌面门禁
+
+on:
+  pull_request:
+    branches: [m1]
+  push:
+    branches: [m1, m1-01, m1-02, m1-03, m1-04, m1-05, m1-06]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: 打包与无密钥桌面测试
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: 读取当前提交
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: 使用固定 Node 开发环境
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.22.3'
+      - name: 安装锁定依赖与 Electron 二进制
+        run: npm ci
+      - name: 类型检查
+        run: npm run typecheck
+      - name: 打包真实 Windows x64 应用
+        run: npm run package
+      - name: 独立临时数据与无密钥桌面测试
+        run: npm test

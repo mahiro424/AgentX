@@ -1,6 +1,6 @@
 # AgentX 整体架构与技术设计 v0.3
 
-日期：2026-09-07。状态：V1 架构方向与 M1 计划已批准。已有部分 Electron/React 脚手架，Renderer 仍为空；产品数据表、执行适配与业务尚未交付。G0/G1 脚本不是生产适配器；[G1 核心报告](../validation/AgentX_Compatibility_Evidence.md#evidence-g1)仅证明已测的 Flash 文件工作、续轮和文本轮中断，首轮失败记录不改写。
+日期：2026-09-08。状态：V1 架构方向与 M1 计划已批准。M1-01 已实现真实 Electron 外框和普通主题/缩放偏好，正在验证及审查；产品业务数据表、执行适配与模型连接尚未交付。G0/G1 脚本不是生产适配器；[G1 核心报告](../validation/AgentX_Compatibility_Evidence.md#evidence-g1)仅证明已测的 Flash 文件工作、续轮和文本轮中断，首轮失败记录不改写。
 
 产品行为以 [PRD](../prd/AgentX_Desktop_PRD.md) 为准；状态转换以[状态流转文档](AgentX_State_Machines.md) 为准；词汇沿用 [CONTEXT.md](../../CONTEXT.md)。本文件定义技术领域对象、进程、模块和数据边界，不向词汇表塞入框架和协议细节。
 
@@ -32,9 +32,9 @@ M1 保持现有锁定依赖：Electron 44.2.0、React 19.2.8、TypeScript 5.9.3�
 
 ### 2.1 M1 的现有工程接缝
 
-现有 Main/Preload 已有 `getAppInfo` 有限产品桥、窗口隔离与来源校验；Renderer 只挂载空主区，尚非可用外框。Forge 插件要求包入口为 `.webpack/main`，当前 `.webpack/main/index.js` 需要在正式 M1-01 工单就绪后修正。Electron npm 包已存在但开发二进制尚未下载到位，构建产物也不等于已启动成功；依赖准备、真实打包和窗口验证属于 M1-01。
+M1-01 的 Main/Preload 暴露 `getAppInfo`、`getPreferences`、`savePreferences` 三个有限产品接口，校验产品窗口、主 frame、规范 URL 及载荷；Renderer 实现共享侧栏、真实空工作台和通用外观偏好。Forge 入口已修正为 `.webpack/main`，Electron 44.2.0 二进制已落地，并已启动真实打包窗口。
 
-本次文档与设计基线不修改以上产品代码。开始源码实现前须具备正式工单和已合并依赖；历史 AX-001 不替代该门禁。
+实现基于正式 Issue #6 和已合入 m1 的 PR #12 / #13；历史 AX-001 不替代门禁。SQLite 和 safeStorage 的合成数据探针已经在打包 Main 的 Node 24.20.0 中验证事务、重开读取与跨进程解密，不表示业务数据库或真实 Key 保存已经实现；产品 CI 与人工 UI 检查仍须单独完成。
 
 ## 3. 进程拓扑与信任边界
 
@@ -92,7 +92,7 @@ Main 管理应用单实例、窗口、托盘、产品服务、SQLite 生命周�
 
 ## 5. 规划源码文件结构
 
-源码根目录：E:\AgentX\desktop。以下是目标职责结构，不表示目录已全部创建。现有 Main、Preload、共享契约和空 Renderer 已存在；G0/G1 验证脚本在 scripts，原始数据位于忽略的 .mvp-g0/.mvp-g1，不搬入生产运行目录。
+源码根目录：E:\AgentX\desktop。以下是目标职责结构，不表示目录已全部创建。现有 Main、Preload、共享契约、外框 Renderer 与普通偏好存储已存在；G0/G1 验证脚本在 scripts，原始数据位于忽略的 .mvp-g0/.mvp-g1，不搬入生产运行目录。
 
 ~~~text
 E:\AgentX\desktop\
@@ -134,8 +134,8 @@ E:\AgentX\desktop\
 │  ├─ integration\
 │  ├─ e2e\
 │  └─ fixtures\                合成或脱敏材料，禁止真实 Key
-├─ package.json                已有锁定依赖与命令，入口待 M1-01 修正
-└─ forge.config.ts             已有 Webpack 配置，实际打包待验证
+├─ package.json                锁定依赖与命令，入口为 .webpack/main
+└─ forge.config.ts             Webpack 配置，已能打包启动真实窗口
 ~~~
 
 安装资源与上述源码不同：引擎二进制放入安装包资源的 engine/<version>/<architecture>，不从用户 PATH 随机挑选，不写进用户项目。文件结构是职责地图，不是要求预建全部空目录；G0 已创建 runtime/codex.lock.json，并由固定二进制在 .mvp-g0 下生成协议；这尚非可发布的产品兼容基线。
