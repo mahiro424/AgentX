@@ -2,42 +2,11 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { _electron } = require('playwright-core');
 
 const root = path.resolve(__dirname, '../..');
 const artifacts = path.join(root, '.local-validation/foundation');
 
-async function launch(existingData) {
-  await fs.mkdir(artifacts, { recursive: true });
-  const data = existingData ?? await fs.mkdtemp(path.join(artifacts, 'electron-data-'));
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|TOKEN|SECRET|PASSWORD|ELECTRON_RUN_AS_NODE/i.test(key)));
-  const app = await _electron.launch({
-    executablePath: path.join(root, 'out/AgentX-win32-x64/AgentX.exe'),
-    env: { ...env, AGENTX_DATA_DIR: data },
-    // 使用真实系统主题，不让 Playwright 默认的浅色媒体模拟覆盖 nativeTheme。
-    colorScheme: null,
-    timeout: 30000,
-  });
-  try {
-    const page = await app.firstWindow();
-    await page.waitForLoadState('load');
-    page.setDefaultTimeout(5000);
-    // 虚拟显示器可能限制首次显示尺寸，测试显式设置真实窗口，不能假定构造参数就是视口。
-    const geometry = await app.evaluate(({ BrowserWindow }) => {
-      const window = BrowserWindow.getAllWindows()[0];
-      const before = window.getSize();
-      window.show();
-      window.setSize(1280, 820);
-      return { before, after: window.getSize() };
-    });
-    if (!existingData) await page.waitForFunction(() => innerWidth === 1280);
-    console.log(`桌面测试尺寸：${JSON.stringify(geometry)}`);
-    return { app, page, data };
-  } catch (error) {
-    await app.close();
-    throw error;
-  }
-}
+const { launch } = require('./helpers.cjs');
 
 test('default / empty：真实桌面显示空工作台，不制造会话或模型连接', { timeout: 45000 }, async t => {
   await fs.mkdir(artifacts, { recursive: true });
@@ -46,7 +15,7 @@ test('default / empty：真实桌面显示空工作台，不制造会话或模�
   await page.getByRole('heading', { name: '今天想完成什么工作？' }).waitFor({ timeout: 5000 });
   assert.equal(await page.title(), 'AgentX');
   assert.equal(await page.getByRole('button', { name: '发送' , exact: true }).isDisabled(), true);
-  assert.equal(await page.getByText('模型连接尚未接入').count(), 1);
+  assert.equal(await page.getByRole('button', { name: '配置模型', exact: true }).count(), 1);
   assert.equal(await page.getByText('优化导出逻辑').count(), 0);
   const info = await page.evaluate(() => window.agentx.getAppInfo());
   assert.equal(info.name, 'AgentX');
@@ -251,7 +220,7 @@ test('IPC：仅暴露产品桥，拒绝非法偏好且不更改原配置', { tim
   const { app, page, data } = await launch();
   t.after(() => app.close());
   const surface = await page.evaluate(() => ({ keys: Object.keys(window.agentx).sort(), frozen: Object.isFrozen(window.agentx), nodeAccess: typeof window.require }));
-  assert.deepEqual(surface, { keys: ['getAppInfo', 'getPreferences', 'savePreferences'], frozen: true, nodeAccess: 'undefined' });
+  assert.deepEqual(surface, { keys: ['fetchModelCatalog', 'getAppInfo', 'getModelSettings', 'getPreferences', 'onModelSettingsChanged', 'revealModelKey', 'saveModelKey', 'savePreferences', 'setActiveModel', 'setModelConnectionEnabled', 'setModelSettingsVisible', 'setSelectedModels', 'testModel'], frozen: true, nodeAccess: 'undefined' });
   await page.evaluate(() => window.agentx.savePreferences({ theme: 'light', zoom: 1 }));
   const previous = await fs.readFile(path.join(data, 'config.json'), 'utf8');
   for (const invalid of [null, [], { theme: 'dark', zoom: 2 }, { theme: 'unknown', zoom: 1 }, { theme: 'dark', zoom: 1, extra: true }]) {

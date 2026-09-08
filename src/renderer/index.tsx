@@ -2,6 +2,8 @@ import { createRoot } from 'react-dom/client';
 import { useEffect, useRef, useState } from 'react';
 import type { AppInfo, Preferences } from '../shared/contracts/app';
 import './styles.css';
+import { ModelSettings } from './pages/ModelSettings';
+import { ModelPicker } from './components/ModelPicker';
 
 function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -10,6 +12,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 1040);
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const [view, setView] = useState<'workbench' | 'settings'>('workbench');
+  const [settingsGroup, setSettingsGroup] = useState<'general' | 'models'>('general');
   const [preferences, setPreferences] = useState<Preferences | null>(null);
   const [saving, setSaving] = useState(false);
   const [preferenceMessage, setPreferenceMessage] = useState('');
@@ -106,19 +109,22 @@ function App() {
             placeholder="描述你想完成的工作…" />
           <div className="composer-toolbar">
             <span className="muted">请求批准</span>
-            <span className="model-state">模型连接尚未接入</span>
-            <button className="send-button" aria-label="发送" aria-describedby="send-unavailable" title="模型与执行尚未接入" disabled>
+            <ModelPicker visible={view === 'workbench'} openSettings={() => { setSettingsGroup('models'); setView('settings'); }} />
+            <button className="send-button" aria-label="发送" aria-describedby="send-unavailable" title="项目与执行尚未接入" disabled>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 20V4m-7 7 7-7 7 7" /></svg>
             </button>
           </div>
         </section>
-        <p id="send-unavailable" role="note" className="muted">模型连接与项目功能尚未接入，暂不能发送任务。</p>
+        <p id="send-unavailable" role="note" className="muted">项目与执行功能尚未接入，暂不能发送任务。</p>
       </main>
       <main className="settings" hidden={view !== 'settings'}>
         <header className="settings-header"><h1>设置</h1><button className="secondary-button" onClick={openWorkbench}>返回工作台</button></header>
         <div className="settings-layout">
-          <nav className="settings-nav" aria-label="设置分类"><span aria-current="page">通用</span></nav>
-          <section className="settings-form" aria-labelledby="general-heading">
+          <nav className="settings-nav" aria-label="设置分类">
+            <button aria-current={settingsGroup === 'general' ? 'page' : undefined} onClick={() => setSettingsGroup('general')}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M3 6h8m4 0h6M3 18h2m4 0h12"/><circle cx="13" cy="6" r="2"/><circle cx="7" cy="18" r="2"/></svg>通用</button>
+            <button aria-current={settingsGroup === 'models' ? 'page' : undefined} onClick={() => setSettingsGroup('models')}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m9 15 6-6m-7 3-3 3a4 4 0 0 0 6 6l3-3m2-6 3-3a4 4 0 0 0-6-6l-3 3"/></svg>模型连接</button>
+          </nav>
+          <section className="settings-form" aria-labelledby="general-heading" hidden={settingsGroup !== 'general'}>
             <h2 id="general-heading">通用</h2>
             <p className="muted">调整桌面外观，不影响工作内容。</p>
             <fieldset disabled={!preferences || saving}>
@@ -136,6 +142,7 @@ function App() {
             {preferenceMessage && <p role="status" className="muted">{preferenceMessage}</p>}
             {preferenceError && <p role="alert" className="error-message">{preferenceError}</p>}
           </section>
+          {view === 'settings' && settingsGroup === 'models' && <ModelSettings />}
         </div>
       </main>
       <div className="read-status">

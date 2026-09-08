@@ -12,7 +12,7 @@
     "start": "electron-forge start",
     "typecheck": "tsc --noEmit",
     "package": "electron-forge package --platform=win32 --arch=x64",
-    "test": "node --test --test-concurrency=1 tests/desktop/foundation.test.cjs"
+    "test": "node --test --test-concurrency=1 tests/desktop/foundation.test.cjs tests/desktop/models.test.cjs"
   },
   "dependencies": {
     "react": "19.2.8",
