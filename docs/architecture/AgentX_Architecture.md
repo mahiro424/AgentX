@@ -1,6 +1,6 @@
 # AgentX 整体架构与技术设计 v0.3
 
-日期：2026-09-08。状态：V1 架构方向与 M1 计划已批准。M1-01 已实现真实 Electron 外框和普通主题/缩放偏好，正在验证及审查；产品业务数据表、执行适配与模型连接尚未交付。G0/G1 脚本不是生产适配器；[G1 核心报告](../validation/AgentX_Compatibility_Evidence.md#evidence-g1)仅证明已测的 Flash 文件工作、续轮和文本轮中断，首轮失败记录不改写。
+日期：2026-09-08。状态：V1 架构方向与 M1 计划已批准。M1-01 外框与 M1-02 模型设置已通过检查及本页视觉确认，分别由 PR #14 / #15 合入 m1。M1-03 在独立分支接通项目元数据与会话列表，视觉已确认，待 CI 及集成；执行适配尚未交付。G0/G1 脚本不是生产适配器；[G1 核心报告](../validation/AgentX_Compatibility_Evidence.md#evidence-g1)仅证明已测的 Flash 文件工作、续轮和文本轮中断，首轮失败记录不改写。
 
 产品行为以 [PRD](../prd/AgentX_Desktop_PRD.md) 为准；状态转换以[状态流转文档](AgentX_State_Machines.md) 为准；词汇沿用 [CONTEXT.md](../../CONTEXT.md)。本文件定义技术领域对象、进程、模块和数据边界，不向词汇表塞入框架和协议细节。
 
@@ -34,7 +34,15 @@ M1 保持现有锁定依赖：Electron 44.2.0、React 19.2.8、TypeScript 5.9.3�
 
 M1-01 的 Main/Preload 暴露 `getAppInfo`、`getPreferences`、`savePreferences` 三个有限产品接口，校验产品窗口、主 frame、规范 URL 及载荷；Renderer 实现共享侧栏、真实空工作台和通用外观偏好。Forge 入口已修正为 `.webpack/main`，Electron 44.2.0 二进制已落地，并已启动真实打包窗口。
 
-实现基于正式 Issue #6 和已合入 m1 的 PR #12 / #13；历史 AX-001 不替代门禁。SQLite 和 safeStorage 的合成数据探针已经在打包 Main 的 Node 24.20.0 中验证事务、重开读取与跨进程解密，不表示业务数据库或真实 Key 保存已经实现；产品 CI 与人工 UI 检查仍须单独完成。
+实现基于正式 Issue #6 和已合入 m1 的 PR #12 / #13；历史 AX-001 不替代门禁。SQLite 和 safeStorage 的合成数据探针已经在打包 Main 的 Node 24.20.0 中验证事务、重开读取与跨进程解密，M1-01 的 CI 与视觉确认随后完成。
+
+M1-02 通过 `ModelService` 与有限产品桥完成配置、系统加密密钥、模型目录、选择与逐模型连接测试；只有 Flash 可被测试或选作执行模型。自动测试用合成凭据与受控响应，不能替代真实模型任务验收。具体证据见[模型设置记录](../validation/M1-02_Model_Settings_Validation.md)。
+
+M1-03 的 `ProjectService` 通过原生单目录选择获取路径；Renderer 不提交任意路径。`realpath` 解析后精确去重，名称只改产品记录，目录可用性读取失败不删关联。新增 `getWorkspace`、`chooseProject`、`renameProject`、`onWorkspaceChanged` 四项有限桥，沿用窗口/frame/URL 校验。`useWorkspace` 隔离列表读取错误和关联操作错误，旧读取不能覆盖新快照或抹除操作失败；原有外框加载项目/会话侧栏和名称编辑弹层。
+
+`storage/database.ts` 统一维护已有模型与新增项目/任务表，不新增第二个数据库 owner。当前 schema 5：前三个版本为模型目录、测试和未决 Key 保存标记，v4 为项目，v5 为任务列表元数据。旧版迁移前留 `agentx.before-v5.<uuid>.db` 一致性快照，迁移整体事务提交；失败不删库重建。名称更新也在校验结果后才提交。这个迁移保护文件不是 V1 备份恢复产品功能。
+
+`createTaskRecord` 是 Main 存储接缝，不暴露给 Renderer。M1-03 生产界面只读实际产品记录，不播种示例；测试通过合成记录验证读取、活动时间和重开。持久化非终态仅为旧观测，读取时投影 `reconciling`，不伪装为活跃引擎。M1-04 负责接入真正的执行生产者与已核对活动投影，M1-05 负责引擎历史正文；见[项目入口验证记录](../validation/M1-03_Project_Sessions_Validation.md)。
 
 ## 3. 进程拓扑与信任边界
 
@@ -159,7 +167,7 @@ ENGINE_THREAD、ENGINE_TURN、ENGINE_ITEM 是外部引擎对象，不是要求�
 
 ### 6.2 产品数据库逻辑实体
 
-下表是字段责任设计，不是已建立的 SQL schema。时间使用 UTC，界面按本地时区显示；真实迁移另经实现计划确认。
+下表是 V1 字段责任设计，不等于当前 SQL schema。时间使用 UTC，界面按本地时区显示；已批准 M1 的当前最小实现见 §2.1。M1-03 仅支持显式项目关联和一个固定引擎目录，任务表 `project_id` 非空、`thread_id` 唯一；可选项目、多引擎目录和完整组织字段按后续切片演进，不提前建空表。
 
 | 逻辑实体 | 最小内容 | 约束 |
 | --- | --- | --- |

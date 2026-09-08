@@ -10,7 +10,7 @@ async function launch(existingData) {
   const data = existingData ?? await fs.mkdtemp(path.join(artifacts, 'electron-data-'));
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|TOKEN|SECRET|PASSWORD|ELECTRON_RUN_AS_NODE/i.test(key)));
   const app = await _electron.launch({
-    executablePath: path.join(root, 'out/AgentX-win32-x64/AgentX.exe'),
+    executablePath: path.join(process.env.AGENTX_TEST_PACKAGE_DIR ?? path.join(root, 'out/AgentX-win32-x64'), 'AgentX.exe'),
     env: { ...env, AGENTX_DATA_DIR: data },
     // 使用真实系统主题，不让 Playwright 默认的浅色媒体模拟覆盖 nativeTheme。
     colorScheme: null,
@@ -20,11 +20,17 @@ async function launch(existingData) {
     const page = await app.firstWindow();
     await page.waitForLoadState('load');
     page.setDefaultTimeout(5000);
+    // 等产品自己的 ready-to-show；抢先 show 会让晚到的启动回调恢复已最小化窗口。
+    await app.evaluate(({ BrowserWindow }) => new Promise((resolve, reject) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      if (window.isVisible()) { resolve(); return; }
+      const timer = setTimeout(() => reject(new Error('产品窗口未完成首次显示')), 10000);
+      window.once('ready-to-show', () => { clearTimeout(timer); resolve(); });
+    }));
     // 虚拟显示器可能限制首次显示尺寸，测试显式设置真实窗口，不能假定构造参数就是视口。
     const geometry = await app.evaluate(({ BrowserWindow }) => {
       const window = BrowserWindow.getAllWindows()[0];
       const before = window.getSize();
-      window.show();
       window.setSize(1280, 820);
       return { before, after: window.getSize() };
     });

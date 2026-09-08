@@ -1,38 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { withDatabase } from './database';
 import type { ModelCatalog, ModelTestResult } from '../../shared/contracts/models';
 
-function withDatabase<T>(root: string, action: (database: DatabaseSync) => T): T {
-  let database: DatabaseSync | undefined;
-  try {
-    database = new DatabaseSync(path.join(root, 'agentx.db'));
-    const version = database.prepare('PRAGMA user_version').get()?.user_version;
-    if (version === 0) {
-      if (database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").get()) throw new Error('unknown-schema');
-      database.exec(`BEGIN;
-        CREATE TABLE model_catalog (id INTEGER PRIMARY KEY CHECK(id=1), model_ids TEXT NOT NULL, fetched_at TEXT NOT NULL, config_revision INTEGER NOT NULL);
-        PRAGMA user_version=1;
-        COMMIT;`);
-    } else if (version !== 1 && version !== 2 && version !== 3) { throw new Error('unsupported-version'); }
-    if (version === 0 || version === 1) {
-      database.exec(`BEGIN;
-        CREATE TABLE model_tests (operation_id TEXT PRIMARY KEY, model_id TEXT NOT NULL, config_revision INTEGER NOT NULL,
-          credential_ref TEXT NOT NULL, tested_at TEXT NOT NULL, duration_ms INTEGER NOT NULL,
-          outcome TEXT NOT NULL CHECK(outcome IN ('passed','failed')), error TEXT);
-        PRAGMA user_version=2;
-        COMMIT;`);
-    }
-    if (version !== 3) {
-      database.exec(`BEGIN;
-        CREATE TABLE model_key_save (id INTEGER PRIMARY KEY CHECK(id=1), previous_ref TEXT);
-        PRAGMA user_version=3;
-        COMMIT;`);
-    }
-    return action(database);
-  } catch { throw new Error('模型元数据读取或写入失败，请检查产品数据库权限、格式和版本；不会清空重建'); }
-  finally { database?.close(); }
-}
 
 export function readCatalog(root: string): ModelCatalog {
   if (!fs.existsSync(path.join(root, 'agentx.db'))) return { modelIds: [], fetchedAt: null, configRevision: null };

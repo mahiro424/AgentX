@@ -1,3 +1,4 @@
+import type { ProjectChoice, ProjectOperation, ProjectRename, ProjectRecord, WorkspaceSnapshot } from './projects';
 import type { ModelTestRequest, ActiveModelChange, ConnectionChange, KeySubmission, ModelOperation, ModelSelectionChange, ModelSettings } from './models';
 
 export const APP_INFO_CHANNEL = 'agentx:app-info';
@@ -17,6 +18,10 @@ export interface AppInfo {
 }
 
 export interface AgentXBridge {
+  renameProject(value: ProjectRename): Promise<ProjectRecord>;
+  chooseProject(value: ProjectOperation): Promise<ProjectChoice>;
+  onWorkspaceChanged(listener: () => void): () => void;
+  getWorkspace(): Promise<WorkspaceSnapshot>;
   getAppInfo(): Promise<AppInfo>;
   getPreferences(): Promise<Preferences>;
   savePreferences(value: Preferences): Promise<Preferences>;

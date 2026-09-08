@@ -1,0 +1,64 @@
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
+
+export function withDatabase<T>(root: string, action: (database: DatabaseSync) => T): T {
+  let database: DatabaseSync | undefined;
+  try {
+    database = new DatabaseSync(path.join(root, 'agentx.db'));
+    const version = database.prepare('PRAGMA user_version').get()?.user_version;
+    if (typeof version !== 'number' || !Number.isInteger(version) || version < 0 || version > 5) throw new Error('unsupported-version');
+    if (version === 0 && database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").get()) throw new Error('unknown-schema');
+    database.exec('PRAGMA foreign_keys=ON');
+    if (version < 5) {
+      if (version > 0) database.prepare('VACUUM INTO ?').run(path.join(root, `agentx.before-v5.${randomUUID()}.db`));
+      database.exec('BEGIN IMMEDIATE');
+    }
+    if (version === 0) {
+      database.exec(`
+        CREATE TABLE model_catalog (id INTEGER PRIMARY KEY CHECK(id=1), model_ids TEXT NOT NULL, fetched_at TEXT NOT NULL, config_revision INTEGER NOT NULL);
+        PRAGMA user_version=1;
+        `);
+    }
+    if (version === 0 || version === 1) {
+      database.exec(`
+        CREATE TABLE model_tests (operation_id TEXT PRIMARY KEY, model_id TEXT NOT NULL, config_revision INTEGER NOT NULL,
+          credential_ref TEXT NOT NULL, tested_at TEXT NOT NULL, duration_ms INTEGER NOT NULL,
+          outcome TEXT NOT NULL CHECK(outcome IN ('passed','failed')), error TEXT);
+        PRAGMA user_version=2;
+        `);
+    }
+    if (Number(version) < 3) {
+      database.exec(`
+        CREATE TABLE model_key_save (id INTEGER PRIMARY KEY CHECK(id=1), previous_ref TEXT);
+        PRAGMA user_version=3;
+        `);
+    }
+    if (Number(version) < 4) {
+      database.exec(`
+        CREATE TABLE projects (project_id TEXT PRIMARY KEY, display_name TEXT NOT NULL, directory TEXT NOT NULL UNIQUE,
+          created_at TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0);
+        PRAGMA user_version=4;
+        `);
+    }
+    if (Number(version) < 5) {
+      database.exec(`
+        CREATE TABLE tasks (task_id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(project_id), title TEXT NOT NULL,
+          directory TEXT NOT NULL, created_at TEXT NOT NULL, last_activity_at TEXT NOT NULL, observed_at TEXT NOT NULL,
+          execution_state TEXT NOT NULL, thread_id TEXT UNIQUE, turn_id TEXT);
+        PRAGMA user_version=5;
+        `);
+    }
+    if (version < 5) database.exec('COMMIT');
+    return action(database);
+  } catch (cause) {
+    const code = (cause as { errcode?: number }).errcode;
+    const kind = typeof code === 'number' ? code & 255 : null;
+    const reasons: Record<number, string> = { 5: '数据库正在被占用', 6: '数据库已锁定', 8: '数据库为只读', 11: '数据库损坏', 14: '无法打开数据库文件', 19: '数据约束冲突', 26: '文件不是有效数据库' };
+    const reason = cause instanceof Error && cause.message === 'unsupported-version' ? '数据库版本不受支持' :
+      cause instanceof Error && /^(invalid-|unknown-schema)/u.test(cause.message) ? '产品记录格式或关联无效' :
+      kind !== null && reasons[kind] ? reasons[kind] : '请检查产品数据库权限、格式和迁移记录';
+    throw new Error(`产品元数据读取或写入失败：${reason}；不会清空重建${typeof code === 'number' ? `（SQLite ${code}）` : ''}`);
+  }
+  finally { database?.close(); }
+}
