@@ -1,6 +1,6 @@
 # AgentX 文档入口
 
-更新日期：2026-09-07。V1 范围、视觉基线与 M1 实施计划已批准；原版 Codex App Server + DeepSeek Flash 已有有限真实工作证据。当前已有部分 Electron/React 脚手架，Renderer 仍为空，尚未交付可用桌面应用。当前从文档和正式 Issue 门禁推进，不直接继续写 Renderer。
+更新日期：2026-09-08。V1 范围、视觉基线与 M1 实施计划已批准；原版 Codex App Server + DeepSeek Flash 已有有限真实工作证据。文档和设计基线已通过正式工单与 PR 合入 m1。当前在 m1-01 实现真实 Electron 外框、普通偏好与桌面验证，尚未接入项目、模型和 Agent 执行；完整 M1 未完成。
 
 ## 阅读顺序与唯一权威来源
 
@@ -23,8 +23,8 @@
 
 - 已确认：通用桌面工作台范围、Windows 首版、本地档案、DeepSeek、Codex App Server 黑盒、默认零补丁、mockup-driven UI；工作台与设置两个主要界面，共用 app-shell。
 - 当前结果：[G1 核心兼容报告](validation/AgentX_Compatibility_Evidence.md#evidence-g1)；[首轮 G0 报告](validation/AgentX_Compatibility_Evidence.md#evidence-g0-first)保留历史失败，不代表最新脚本的复跑预期。
-- 图稿状态：用户已确认 V1，三个默认 [references](design/references/README.md) 已固化；25 张关键状态采用图与旧稿保留，尚无真实 UI 实现。
-- 已验证部分：固定官方 0.153.4、公开协议、会话接口、真实双文件修改与 4 项业务断言、同线程续轮、停止终态；执行后历史接口返回 3 轮。共享技能严格隔离未满足，按用户决定作为非阻断观察；全量权限、恢复、办公、桌面控制与打包尚未完成。
+- 图稿状态：用户已确认 V1，三个默认 [references](design/references/README.md) 已固化；25 张关键状态采用图已入库。M1-01 已有真实外框，自动验证与人工设计 QA 继续分别记录，不把输入图确认当作实现验收。
+- 兼容性已验证部分：固定官方 0.153.4、公开协议、会话接口、真实双文件修改与 4 项业务断言、同线程续轮、停止终态；执行后历史接口返回 3 轮。共享技能严格隔离未满足，按用户决定作为非阻断观察；全量权限、恢复、办公、桌面控制和完整产品包尚未完成。
 - 当前已批准 M1 本地实施和正式产品默认 `.AgentX` 数据设计；自动测试使用独立临时目录，不读取正式凭据或真实项目。远程工单/标签及 Git/PR 操作已获授权，检查通过后仅可合入 m1，master 不动；真实模型验收仅人工触发、只用 Flash。未授权其他模型调用、全局配置修改、上游补丁、发布或自动迁移。
 - 历史 [AX-001](plans/AX-001_Desktop_Foundation.md) 保留已发生的准备工作，不再作为正式 Issue 或 ready-for-agent 凭证。M1 的阶段覆盖在 PRD 中，不能把有限通过或本地草稿当作整页完成与远程门禁完成。
 

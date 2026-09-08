@@ -1,0 +1,56 @@
+{
+  "generatedAt": "2026-09-07T16:48:12.759Z",
+  "sourceCommit": "55d94c7dcbe0e24aec74f3835e0566dac1e892de",
+  "archiveSha256": "841d361a4828323910980c8d549ac9e0fd516b63892368d9e1825317028b3eed",
+  "buildNodeVersion": "22.22.3",
+  "info": {
+    "name": "AgentX",
+    "version": "0.1.0",
+    "platform": "win32",
+    "stage": "foundation"
+  },
+  "runtimeVersions": {
+    "electron": "44.2.0",
+    "node": "24.20.0"
+  },
+  "kind": "本机真实 Electron 客户区截图，非 CI 截图或设计稿；不含原生窗口边框",
+  "manualDesignReview": "待用户检查",
+  "shots": [
+    {
+      "file": "workbench-light-1280.png",
+      "label": "浅色空工作台，1280×820",
+      "width": 1280,
+      "height": 820,
+      "theme": "light",
+      "zoom": 1,
+      "displayScaleFactor": 1
+    },
+    {
+      "file": "settings-light-1280.png",
+      "label": "浅色通用设置，1280×820",
+      "width": 1280,
+      "height": 820,
+      "theme": "light",
+      "zoom": 1,
+      "displayScaleFactor": 1
+    },
+    {
+      "file": "workbench-dark-1280.png",
+      "label": "深色空工作台，1280×820",
+      "width": 1280,
+      "height": 820,
+      "theme": "dark",
+      "zoom": 1,
+      "displayScaleFactor": 1
+    },
+    {
+      "file": "workbench-dark-960.png",
+      "label": "深色紧凑工作台，960×640",
+      "width": 960,
+      "height": 640,
+      "theme": "dark",
+      "zoom": 1,
+      "displayScaleFactor": 1
+    }
+  ]
+}
