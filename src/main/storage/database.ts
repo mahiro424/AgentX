@@ -7,11 +7,11 @@ export function withDatabase<T>(root: string, action: (database: DatabaseSync) =
   try {
     database = new DatabaseSync(path.join(root, 'agentx.db'));
     const version = database.prepare('PRAGMA user_version').get()?.user_version;
-    if (typeof version !== 'number' || !Number.isInteger(version) || version < 0 || version > 8) throw new Error('unsupported-version');
+    if (typeof version !== 'number' || !Number.isInteger(version) || version < 0 || version > 9) throw new Error('unsupported-version');
     if (version === 0 && database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").get()) throw new Error('unknown-schema');
     database.exec('PRAGMA foreign_keys=ON');
-    if (version < 8) {
-      if (version > 0) database.prepare('VACUUM INTO ?').run(path.join(root, `agentx.before-v8.${randomUUID()}.db`));
+    if (version < 9) {
+      if (version > 0) database.prepare('VACUUM INTO ?').run(path.join(root, `agentx.before-v9.${randomUUID()}.db`));
       database.exec('BEGIN IMMEDIATE');
     }
     if (version === 0) {
@@ -67,7 +67,13 @@ export function withDatabase<T>(root: string, action: (database: DatabaseSync) =
       database.exec(`ALTER TABLE execution_intents ADD COLUMN turn_id TEXT;
         CREATE UNIQUE INDEX execution_intents_turn ON execution_intents(task_id, turn_id) WHERE turn_id IS NOT NULL;
         PRAGMA user_version=8;`);
-      database.exec('COMMIT');
+    }
+    if (version < 9) {
+      database.exec(`CREATE TABLE runtime_leases (lease_id TEXT PRIMARY KEY, instance_id TEXT NOT NULL,
+        task_id TEXT NOT NULL, operation_id TEXT NOT NULL UNIQUE, project_id TEXT NOT NULL REFERENCES projects(project_id),
+        process_identity TEXT NOT NULL, created_at TEXT NOT NULL, work_started INTEGER NOT NULL DEFAULT 0 CHECK(work_started IN (0,1)),
+        root_closed_at TEXT, released_at TEXT);
+        PRAGMA user_version=9; COMMIT;`);
     }
     return action(database);
   } catch (cause) {
@@ -75,6 +81,7 @@ export function withDatabase<T>(root: string, action: (database: DatabaseSync) =
     const kind = typeof code === 'number' ? code & 255 : null;
     const reasons: Record<number, string> = { 5: '数据库正在被占用', 6: '数据库已锁定', 8: '数据库为只读', 11: '数据库损坏', 14: '无法打开数据库文件', 19: '数据约束冲突', 26: '文件不是有效数据库' };
     const reason = cause instanceof Error && cause.message === 'unsupported-version' ? '数据库版本不受支持' :
+      cause instanceof Error && cause.message === 'runtime-lease-pending' ? '仍有引擎归属及后台回收待核对，禁止创建新执行' :
       cause instanceof Error && cause.message === 'invalid-draft-revision' ? '草稿已被其他操作更新，请先核对保存版本' :
       cause instanceof Error && /^(invalid-|unknown-schema)/u.test(cause.message) ? '产品记录格式或关联无效' :
       kind !== null && reasons[kind] ? reasons[kind] : '请检查产品数据库权限、格式和迁移记录';

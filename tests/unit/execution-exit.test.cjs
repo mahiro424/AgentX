@@ -31,7 +31,8 @@ async function fixture(t, terminals = [], beforeClose = async () => {}) {
   });
   t.mock.method(boundary, 'openExecutionCodex', async (_options, handlers) => {
     const transport = new CodexTransport(input, output, handlers);
-    return { transport, close: async () => { await beforeClose(); closed++; transport.close(); input.destroy(); output.destroy(); } };
+    return { transport, identity: { pid: 1234, parentPid: process.pid, createdAt: new Date().toISOString(), executablePath: path.join(root, 'synthetic-codex.exe') },
+      close: async () => { await beforeClose(); closed++; transport.close(); input.destroy(); output.destroy(); } };
   });
   const service = new ExecutionService(root, root, { captureExecution: async () => ({
     modelId: 'deepseek-v4-flash', configRevision: 1, credentialRef: randomUUID(), apiKey: 'synthetic-exit-key',
@@ -40,11 +41,18 @@ async function fixture(t, terminals = [], beforeClose = async () => {}) {
   const request = { taskId: randomUUID(), operationId: randomUUID(), projectId: project.projectId,
     modelId: 'deepseek-v4-flash', configRevision: 1, text: '生命周期合成任务' };
   const task = await service.start(request);
-  return { service, calls, emit, request, task, closed: () => closed };
+  return { root, service, calls, emit, request, task, closed: () => closed };
 }
 
 test('停止后退出：中断应答后继续等待权威终态和后台核对，再回收本实例引擎', async t => {
   const f = await fixture(t);
+  const { readRuntimeLeases } = require('../../src/main/storage/runtime-leases.ts');
+  const acquired = readRuntimeLeases(f.root);
+  assert.equal(acquired.length, 1);
+  assert.equal(acquired[0].taskId, f.task.taskId);
+  assert.equal(acquired[0].operationId, f.request.operationId);
+  assert.equal(acquired[0].workStarted, true);
+  assert.equal(acquired[0].releasedAt, null);
   let finished = false;
   const exit = f.service.shutdown().then(() => { finished = true; });
   await new Promise(resolve => setImmediate(resolve));
@@ -60,6 +68,7 @@ test('停止后退出：中断应答后继续等待权威终态和后台核对�
   assert.equal(finished, true);
   assert.equal(f.calls.filter(value => value.method === 'turn/start').length, 1);
   assert.ok(f.calls.some(value => value.method === 'thread/backgroundTerminals/list'));
+  assert.equal(typeof readRuntimeLeases(f.root)[0].releasedAt, 'string');
 });
 
 test('已有停止请求时退出共享同一次中断，等待进程关闭完成，不重复 interrupt', async t => {
@@ -108,4 +117,22 @@ test('退出不能漏过归属未核实的后台终端：不终止陌生命令�
   assert.equal(f.calls.filter(value => value.method === 'thread/backgroundTerminals/terminate').length, 0);
   await assert.rejects(f.service.start({ ...f.request, taskId: randomUUID(), operationId: randomUUID() }), /核对/);
   assert.equal(f.service.needsExitConfirmation(), true);
+});
+
+test('重开后轮次已结束但后台未核对：持久化归属仍阻止新任务和无确认退出，不读取模型密钥', async t => {
+  const f = await fixture(t);
+  f.emit({ method: 'turn/completed', params: { threadId: f.task.threadId, turn: { id: f.task.turnId, status: 'completed' } } });
+  await f.service.close();
+  const { readRuntimeLeases } = require('../../src/main/storage/runtime-leases.ts');
+  const retained = readRuntimeLeases(f.root);
+  assert.equal(retained[0].releasedAt, null);
+  assert.equal(typeof retained[0].rootClosedAt, 'string');
+  const { ExecutionService } = require('../../src/main/services/execution.ts');
+  const reopened = new ExecutionService(f.root, f.root, { captureExecution: async () => assert.fail('未核对归属，不得读取模型密钥') });
+  t.after(() => reopened.close());
+  assert.equal(reopened.needsExitConfirmation(), true);
+  await assert.rejects(reopened.shutdown(), /后台.*核对|核对.*后台/);
+  await assert.rejects(reopened.start({ ...f.request, taskId: randomUUID(), operationId: randomUUID() }), /核对/);
+  assert.deepEqual(readRuntimeLeases(f.root), retained);
+  assert.equal(f.calls.filter(value => value.method === 'turn/start').length, 1);
 });

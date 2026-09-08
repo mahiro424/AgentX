@@ -50,3 +50,31 @@ test('exitConfirm：未知任务真正退出先确认，取消不改变记录或
  await page.waitForFunction(()=>document.visibilityState==='visible');
  assert.equal(await page.getByRole('textbox',{name:'任务要求'}).inputValue(),'取消退出后保留的草稿');
 });
+
+test('重开后的退出确认：终态任务仍有未释放引擎记录时展示真实错误，不自动执行或清锁', {timeout:45000}, async t=>{
+ let current=await launch();t.after(()=>crashTestApp(current.app));
+ const {data}=current;
+ const {associateProject}=require('../../src/main/storage/projects.ts');
+ const {createTaskRecord}=require('../../src/main/storage/tasks.ts');
+ const {acquireRuntimeLease,markRuntimeWorkStarted,recordRuntimeClosed,readRuntimeLeases}=require('../../src/main/storage/runtime-leases.ts');
+ const project=associateProject(data,data).project,now=new Date().toISOString(),taskId=randomUUID(),instanceId=randomUUID(),leaseId=randomUUID();
+ createTaskRecord(data,{taskId,projectId:project.projectId,directory:data,title:'已结束但后台未核对',
+  executionState:'completed',threadId:'lease-ui-thread',turnId:'lease-ui-turn',lastActivityAt:now,observedAt:now});
+ acquireRuntimeLease(data,{leaseId,instanceId,taskId,operationId:randomUUID(),projectId:project.projectId,createdAt:now,
+  identity:{pid:1234,parentPid:process.pid,createdAt:now,executablePath:require('node:path').join(data,'synthetic-codex.exe')}});
+ markRuntimeWorkStarted(data,leaseId,instanceId);recordRuntimeClosed(data,leaseId,instanceId,false);
+ const before=readRuntimeLeases(data);
+ await crashTestApp(current.app);current=await launch(data);
+ assert.equal((await current.page.evaluate(()=>window.agentx.getWorkspace())).tasks[0].executionState,'completed');
+ await assert.rejects(current.page.evaluate(value=>window.agentx.startExecution(value),{
+  taskId:randomUUID(),operationId:randomUUID(),projectId:project.projectId,text:'不应发送',modelId:'deepseek-v4-flash',configRevision:0,
+ }),/先前引擎及后台回收待核对/);
+ await current.app.evaluate(({app})=>{setImmediate(()=>app.quit());});
+ const prompt=current.page.getByRole('dialog',{name:'还有执行未确认结束'});await prompt.waitFor();
+ await prompt.getByRole('button',{name:'停止后退出'}).click();
+ await prompt.getByRole('alert').filter({hasText:'先前引擎及后台回收待核对'}).waitFor();
+ assert.equal((await current.page.evaluate(()=>window.agentx.getExitState())).state,'error');
+ assert.deepEqual(readRuntimeLeases(data),before);
+ const files=await require('node:fs/promises').readdir(data);
+ assert.equal(files.includes('engine'),false);
+});

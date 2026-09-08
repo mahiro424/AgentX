@@ -40,7 +40,7 @@
 
 ## 仍需完成，不能关闭 #11
 
-1. 进程归属/回收事实持久化，重开后发现遗留执行；本实例内存中的退出失败不能成为唯一依据。
+1. 进程归属/回收事实持久化已接入本切片增量，详见下节；重开后的实际进程及公开历史核对尚未闭环。
 2. 崩溃、断线及未决意图的公开历史只读核对与 UI 事实展示；不自动重发、清锁或按进程名批量结束程序。
 3. 真实 Flash 运行中的切页、托盘恢复与停止后退出验收，以及最终全量回归、PR、CI 和仅合入 `m1`。
 4. M1 最终可解压包及整条验收链归档。
@@ -55,3 +55,36 @@
 - `git diff --check` 通过。此处仅确认上述增量；#11 仍开放，持久化归属、异常历史核对和真实运行中退出未完成，尚不发起该切片合并。
 
 首次远程 CI `34231885786` 失败：4 个新退出服务用例的 fixture 假设本机已有 `.local-validation/m1-06`，干净检出中 `mkdtemp` 返回 ENOENT，并非实际退出行为失败。`28-clean-fixture-red.log` 在全新工作目录复现 0/4；补齐 fixture 的父目录创建后，`29-clean-fixture-green.log` 同环境 4/4。不改生产代码、不上传本地缓存来掩盖问题，修正后重新运行远程完整门禁。
+
+## 进程归属持久化增量（仍非切片完成）
+
+上一增量修正后的远程 CI `34232389554` 已成功，提交 `31075f4d569f031f2e4e464c86945b429fac279e`，170/170。
+
+- `lifecycle/process-identity.ts` 使用 Windows `Win32_Process` 只读查询 PID、父 PID、完整创建时间和映像路径；固定脚本、数值参数校验、隐藏窗口、超时与输出上限。查询失败不返回伪造的“进程不存在”。不读取 CommandLine、环境变量或 Key，不提供任意 PID 结束能力。创建时间保留操作系统精度，不降为 JS 毫秒；[Microsoft 文档](https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-process)说明 PID 可复用。
+- `openExecutionCodex` 在配置核验后捕获实际子进程身份，要求父 PID 属于本 Main、映像为固定校验资源，失败回收拥有的子进程；没有模型调用。只读历史连接不派发任务，不登记执行归属。
+- SQLite schema 9 的 `runtime_leases` 在任何任务派发前记录产品实例、任务、操作、项目及进程身份。迁移先留 `before-v9` 一致性快照，不伪造旧版本的历史归属；已有迁移用例仍检验原始版本和数据。
+- 正常退出和续轮替换共用已结束轮次/后台回收/本实例根进程关闭核验。裸关闭只记根进程结束，未释放记录跨重开继续阻止新任务及无确认退出；不解密模型 Key、不自动清锁。
+- 归属写入失败不派发任务，关闭刚启动的引擎；准备失败且没有发送意图时可以回收/重试，不永久占槽。旧后台归属不明时保留旧连接，不先关掉再启动替换引擎。
+
+| 行为 | RED | GREEN / 回归 |
+| --- | --- | --- |
+| 实际 Windows 子进程身份、退出后消失及 PID 重用比较 | `32-process-identity-red.log`：接缝未实现 | `33-process-identity-green.log` 1/1 |
+| 固定真实执行引擎启动时捕获身份 | `34-runtime-identity-red.log`：没有身份 | `35-runtime-identity-green.log` 1/1，无模型调用 |
+| 根进程关闭与后台回收分别落盘 | `36-runtime-lease-red.log`：存储未实现 | `37-runtime-lease-green.log` 1/1 |
+| 执行服务保存并在完整退出后释放归属 | `38-execution-lease-red.log`：没有归属记录 | `39-execution-lease-green.log` 4/4 |
+| 重开不能遗忘已结束轮次的未决后台 | `40-runtime-reopen-red.log`：漏过退出确认 | `41-runtime-reopen-green.log` 5/5 |
+| 续轮先回收旧引擎，再关联新操作 | `42-runtime-replacement-red.log`：旧归属未释放 | `43-runtime-replacement-green.log` 12/12 |
+| 无意图的准备失败可再次回收退出 | `46-prepare-close-red.log`：误报存在未决轮次 | `47-prepare-close-green.log` 1/1 |
+
+`45-runtime-lease-unit.log` 83/83，之后增加的准备失败回收用例由 `47` 单独验证。独立只读审查未发现具体阻断缺陷；主线程另补充了上述准备失败回收 RED/GREEN。原始失败日志全部保留，没有更改 Codex 上游。
+
+指定交付目录中的用户应用仍在运行，覆盖前检查主动停止打包步骤，没有结束该应用。使用 Forge 已有 `api.package({outDir})` 和测试已有 `AGENTX_TEST_PACKAGE_DIR` 接缝，在 `.local-validation/m1-06/package-lease/AgentX-win32-x64` 构建独立验证包；没有修改构建配置或增加生产旁路。`48-runtime-lease-typecheck.log` 通过，独立打包命令退出 0（`49-runtime-lease-isolated-package.log`）。指定 `out` 目录更新仍须等用户退出应用，不能把独立包当成已经覆盖交付目录。
+
+完整回归：
+
+- `50-runtime-lease-isolated-full.log`：176/177，一条旧迁移失败测试仍匹配 `before-v8` 文件名，实际已正确生成 `before-v9`，原库版本及数据回滚断言通过。修正遗漏的版本断言，不修改生产迁移逻辑；原始失败保留。
+- `51-lease-desktop-migration.log`：2/2，修正后的迁移失败测试与新增真实 Electron 重开保护均通过。后者使用合成归属记录，实际重开产品，再经有限 IPC 尝试发送/退出，验证错误可见、记录不变且没有创建引擎目录；不把它冒称真实遗留进程回收验收。
+- `52-runtime-lease-isolated-full.log`：**178/178**，265787.3342 ms，真实独立打包 Electron + 无密钥自动测试，没有人为介入清理。
+- `53-runtime-lease-docs.log`：32 份文档、185 个仓库内引用、72 个 M1 场景，错误 0；`git diff --check` 通过。
+
+本增量仍无模型调用。完整 #11 的 PR/合并及最终 M1 验收留待剩余范围通过，不提前关闭。

@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import { readWorkspace } from '../storage/projects';
 import { captureWorkspace, captureGitState } from './workspace-results';
 import { saveWorkspaceBaseline } from '../storage/results';
+import { acquireRuntimeLease, markRuntimeWorkStarted, recordRuntimeClosed, readRuntimeLeases } from '../storage/runtime-leases';
 import { beginTaskSubmission, beginTaskContinuation, markSubmissionDispatched, markSubmissionUncertain, bindSubmissionThread, acknowledgeSubmission, settleTaskTurn, beginTaskStop, updateApprovalWait, readSubmissionIntent } from '../storage/tasks';
 import { parseApprovalRequest, answerApproval, type ApprovalRequest } from '../runtime/codex/approvals';
 import { startThread, resumeThread, startTurn, interruptTurn, steerTurn, terminateBackgroundTerminals } from '../runtime/codex/execution';
@@ -29,6 +30,8 @@ export class ExecutionService {
   private finishPreparation: (() => void) | null = null;
   private controlOperations = new Set<string>();
   private runtime: Awaited<ReturnType<typeof openExecutionCodex>> | null = null;
+  private readonly instanceId = randomUUID();
+  private runtimeLeaseId: string | null = null;
   private current: { taskId: string; operationId: string; session: FirstTurnSession } | null = null;
   private historyReads = new Set<Promise<TaskHistory>>();
 
@@ -133,12 +136,47 @@ export class ExecutionService {
     this.closing = true;
     await Promise.allSettled(this.historyReads);
     await this.preparationDone;
-    if (this.runtime) { await this.runtime.close(); this.runtime = null; }
+    await this.closeOwnedRuntime(false);
+  }
+
+  private async closeOwnedRuntime(backgroundVerified: boolean): Promise<void> {
+    if (!this.runtime) return;
+    await this.runtime.close();
+    if (this.runtimeLeaseId) {
+      // 没有发送意图表示准备/只读恢复失败在任务派发之前，不为此永久占用执行槽。
+      const noIntent = !!this.current && readSubmissionIntent(this.root, this.current.operationId) === null;
+      recordRuntimeClosed(this.root, this.runtimeLeaseId, this.instanceId, backgroundVerified || noIntent);
+      this.runtimeLeaseId = null;
+    }
+    this.runtime = null;
   }
 
   needsExitConfirmation(): boolean {
-    return this.preparing || !!this.runtime || !!this.exitError || readWorkspace(this.root).tasks.some(task =>
+    return this.preparing || !!this.runtime || !!this.exitError || readRuntimeLeases(this.root).some(lease => lease.releasedAt === null) || readWorkspace(this.root).tasks.some(task =>
       !['idle', 'completed', 'failed', 'interrupted'].includes(task.executionState));
+  }
+
+  private assertNoUnownedRuntime(): void {
+    if (readRuntimeLeases(this.root).some(lease => lease.releasedAt === null &&
+        (lease.leaseId !== this.runtimeLeaseId || lease.instanceId !== this.instanceId))) {
+      throw new Error('仍有先前引擎及后台回收待核对；不自动重发、清锁或结束未知进程');
+    }
+  }
+
+  private async releaseCompletedRuntime(): Promise<void> {
+    if (!this.runtime) return;
+    if (this.current && readSubmissionIntent(this.root, this.current.operationId) === null) {
+      await this.closeOwnedRuntime(false);
+      return;
+    }
+    const task = this.read().task;
+    if (!task?.threadId || !['completed', 'failed', 'interrupted'].includes(task.executionState)) {
+      throw new Error('本实例轮次或引擎归属尚待核对，不能回收后派发新任务');
+    }
+    const remaining = await terminateBackgroundTerminals(this.runtime.transport, task.threadId,
+      new Set(this.current!.session.readItems().filter(item => item.kind === 'command').map(item => item.itemId)));
+    if (remaining) throw new Error('仍有后台终端归属未核实，未终止陌生命令，也未确认可退出');
+    await this.closeOwnedRuntime(true);
   }
 
   // 仅在用户确认真正退出后调用。终态、后台回收、引擎退出三者均须完成。
@@ -148,6 +186,7 @@ export class ExecutionService {
     const drain = async () => {
       await this.preparationDone;
       if (this.stopPending) await this.stopPending;
+      this.assertNoUnownedRuntime();
       const task = this.read().task;
       if (task && ['running', 'waitingApproval', 'waitingInput'].includes(task.executionState)) {
         await this.stopSession(this.current!.session);
@@ -155,12 +194,8 @@ export class ExecutionService {
       if (readWorkspace(this.root).tasks.some(value => !['idle', 'completed', 'failed', 'interrupted'].includes(value.executionState))) {
         throw new Error('仍有未决任务，尚未确认轮次与后台进程结束；保留记录，不自动重发或强制退出');
       }
-      if (this.runtime && task?.threadId) {
-        const remaining = await terminateBackgroundTerminals(this.runtime.transport, task.threadId,
-          new Set(this.current!.session.readItems().filter(item => item.kind === 'command').map(item => item.itemId)));
-        if (remaining) throw new Error('仍有后台终端归属未核实，未终止陌生命令，也未确认可退出');
-      }
-      await this.close();
+      await Promise.allSettled(this.historyReads);
+      await this.releaseCompletedRuntime();
       this.exitError = null;
     };
     const pending = drain().catch(error => {
@@ -181,6 +216,7 @@ export class ExecutionService {
   private async submit(input: unknown, continuing: boolean) {
     if (this.closing) throw new Error('应用正在退出，不能发送任务');
     if (this.exitError) throw new Error(`退出核对尚未完成，不能发送新任务：${this.exitError}`);
+    this.assertNoUnownedRuntime();
     const uuid = (value: unknown): value is string => typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== (continuing ? 8 : 6) ||
         !('taskId' in input) || !uuid(input.taskId) || !('operationId' in input) || !uuid(input.operationId) ||
@@ -206,6 +242,7 @@ export class ExecutionService {
     this.preparationDone = new Promise(resolve => { this.finishPreparation = resolve; });
     this.error = null;
     this.changed();
+    let openedForRequest = false;
     try {
       const snapshot = await this.models.captureExecution(request.configRevision);
       if (this.closing) throw new Error('应用正在退出，未开始执行');
@@ -213,10 +250,7 @@ export class ExecutionService {
       if (await fs.realpath(project.directory) !== project.directory || !(await fs.stat(project.directory)).isDirectory()) throw new Error('项目目录已变化，未开始执行');
       const directory = await fs.opendir(project.directory); await directory.close();
       await Promise.allSettled(this.historyReads);
-      if (this.runtime) {
-        await this.runtime.close();
-        this.runtime = null;
-      }
+      await this.releaseCompletedRuntime();
       const configuration = await prepareCodexConfiguration(this.root, snapshot);
       const now = new Date().toISOString();
       const task: TaskSummary = previous ?? { taskId: request.taskId, projectId: project.projectId, directory: project.directory,
@@ -236,19 +270,25 @@ export class ExecutionService {
           this.changed();
         },
       });
+      openedForRequest = true;
+      const leaseId = randomUUID();
+      acquireRuntimeLease(this.root, { leaseId, instanceId: this.instanceId, taskId: task.taskId,
+        operationId: intent.operationId, projectId: task.projectId, identity: this.runtime.identity, createdAt: new Date().toISOString() });
+      this.runtimeLeaseId = leaseId;
       if (this.closing) throw new Error('应用正在退出，未发送任务');
       const baseline = await captureWorkspace(project.directory);
       const git = await captureGitState(project.directory);
       await saveWorkspaceBaseline(this.root, { taskId: task.taskId, operationId: intent.operationId }, baseline, git);
       if (this.closing) throw new Error('应用正在退出，未发送任务');
+      markRuntimeWorkStarted(this.root, leaseId, this.instanceId);
       await session.submit(this.runtime.transport);
       const saved = readWorkspace(this.root).tasks.find(value => value.taskId === task.taskId);
       if (!saved) throw new Error('提交后任务记录缺失，需核对状态');
       return saved;
     } catch (error) {
       this.error = error instanceof Error ? error.message : '执行失败，请核对状态';
-      if (this.runtime) {
-        try { await this.runtime.close(); this.runtime = null; }
+      if (this.runtime && openedForRequest) {
+        try { await this.closeOwnedRuntime(false); }
         catch (closeError) { throw new AggregateError([error, closeError], '执行准备或发送失败，且引擎回收未确认；禁止重发'); }
       }
       throw error;

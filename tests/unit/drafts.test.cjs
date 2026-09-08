@@ -36,10 +36,10 @@ test('草稿迁移：v6 一致性备份保留发送意图，新表创建后原�
   const root = await fs.mkdtemp(path.resolve('.local-validation/m1-04/draft-migration-'));
   const project = associateProject(root, root).project;
   const previous = new DatabaseSync(path.join(root, 'agentx.db'));
-  try { previous.exec('DROP TABLE drafts; DROP INDEX execution_intents_turn; ALTER TABLE execution_intents DROP COLUMN turn_id; PRAGMA user_version=6'); } finally { previous.close(); }
+  try { previous.exec('DROP TABLE runtime_leases; DROP TABLE drafts; DROP INDEX execution_intents_turn; ALTER TABLE execution_intents DROP COLUMN turn_id; PRAGMA user_version=6'); } finally { previous.close(); }
   assert.equal(readDraft(root, { projectId: project.projectId, taskId: null }).revision, 0);
   assert.deepEqual(readWorkspace(root).projects, [project]);
-  const backups = (await fs.readdir(root)).filter(name => /^agentx\.before-v8\..+\.db$/.test(name));
+  const backups = (await fs.readdir(root)).filter(name => /^agentx\.before-v9\..+\.db$/.test(name));
   assert.equal(backups.length, 1);
   const saved = new DatabaseSync(path.join(root, backups[0]), { readOnly: true });
   try {

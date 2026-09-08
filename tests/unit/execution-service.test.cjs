@@ -38,7 +38,8 @@ test('执行产品控制：首次提交、补充、审批、停止经过同一�
     assert.equal(options.workingDirectory, root);
     assert.equal(options.environment.AGENTX_API_KEY, 'synthetic-control-key');
     const transport = new CodexTransport(input, output, handlers);
-    return { transport, close: async () => { transport.close(); input.destroy(); output.destroy(); } };
+    return { transport, identity: { pid: 1234, parentPid: process.pid, createdAt: new Date().toISOString(), executablePath: path.join(root, 'synthetic-codex.exe') },
+      close: async () => { transport.close(); input.destroy(); output.destroy(); } };
   });
   let updates = 0;
   const service = new ExecutionService(root, root, { captureExecution: async () => ({
@@ -103,7 +104,8 @@ test('停止清理失败：轮次中断也不冒充全部停止，保留核对�
   });
   t.mock.method(processBoundary, 'openExecutionCodex', async (_options, handlers) => {
     const transport = new CodexTransport(input, output, handlers);
-    return { transport, close: async () => { transport.close(); input.destroy(); output.destroy(); } };
+    return { transport, identity: { pid: 1234, parentPid: process.pid, createdAt: new Date().toISOString(), executablePath: path.join(root, 'synthetic-codex.exe') },
+      close: async () => { transport.close(); input.destroy(); output.destroy(); } };
   });
   const service = new ExecutionService(root, root, { captureExecution: async () => ({
     modelId: 'deepseek-v4-flash', configRevision: 1, credentialRef: randomUUID(), apiKey: 'synthetic-cleanup-key',
@@ -238,12 +240,16 @@ test('首次发送基线：引擎收到 turn/start 前，原始文件已按同�
   const project = associateProject(root, directory).project;
   const request = { taskId: randomUUID(), operationId: randomUUID(), projectId: project.projectId, modelId: 'deepseek-v4-flash', configRevision: 1, text: '合成修改要求' };
   const calls = [];
-  t.mock.method(boundary, 'openExecutionCodex', async () => ({ transport: { call: async method => {
+  t.mock.method(boundary, 'openExecutionCodex', async () => ({ identity: { pid: 1234, parentPid: process.pid, createdAt: new Date().toISOString(), executablePath: path.join(root, 'synthetic-codex.exe') }, transport: { call: async method => {
     calls.push(method);
     if (method === 'thread/start') return { thread: { id: 'baseline-thread', cwd: directory }, cwd: directory,
       model: 'deepseek-v4-flash', modelProvider: 'deepseek', approvalPolicy: 'on-request', approvalsReviewer: 'user',
       instructionSources: [], sandbox: { type: 'workspaceWrite', writableRoots: [], networkAccess: false } };
     assert.equal(method, 'turn/start');
+    const lease = require('../../src/main/storage/runtime-leases.ts').readRuntimeLeases(root)[0];
+    assert.equal(lease.taskId, request.taskId);
+    assert.equal(lease.operationId, request.operationId);
+    assert.equal(lease.workStarted, true);
     const baseline = await readWorkspaceBaseline(root, request);
     assert.equal(baseline.snapshot.files.find(file => file.path === 'main.txt').text, '执行前人工内容');
     await fs.writeFile(path.join(directory, 'main.txt'), '执行后的合成内容');
@@ -268,7 +274,7 @@ test('首次发送基线：保存失败不派发任务，回收引擎并保留�
   await fs.writeFile(path.join(root, 'results'), '合成目录冲突，禁止覆盖');
   const project = associateProject(root, directory).project;
   let closed = 0, calls = 0;
-  t.mock.method(boundary, 'openExecutionCodex', async () => ({ transport: { call: async () => {
+  t.mock.method(boundary, 'openExecutionCodex', async () => ({ identity: { pid: 1234, parentPid: process.pid, createdAt: new Date().toISOString(), executablePath: path.join(root, 'synthetic-codex.exe') }, transport: { call: async () => {
     calls++; assert.fail('基线未保存，不允许派发任何任务 RPC');
   } }, close: async () => { closed++; } }));
   const service = new ExecutionService(root, root, { captureExecution: async () => ({ modelId: 'deepseek-v4-flash', configRevision: 1, credentialRef: randomUUID(), apiKey: 'synthetic-baseline-key' }) });
@@ -282,4 +288,62 @@ test('首次发送基线：保存失败不派发任务，回收引擎并保留�
   assert.deepEqual(readWorkspace(root).tasks, []);
   assert.equal(await fs.readFile(path.join(directory, 'main.txt'), 'utf8'), '原有人工内容');
   assert.equal(await fs.readFile(path.join(root, 'results'), 'utf8'), '合成目录冲突，禁止覆盖');
+  const lease = require('../../src/main/storage/runtime-leases.ts').readRuntimeLeases(root)[0];
+  assert.equal(lease.workStarted, false);
+  assert.equal(typeof lease.releasedAt, 'string');
+  assert.equal(service.needsExitConfirmation(), false);
+});
+
+test('引擎归属落盘失败：关闭刚启动的引擎，不派发任务且保留原数据库', async t => {
+  const { ExecutionService } = require('../../src/main/services/execution.ts');
+  const boundary = require('../../src/main/runtime/codex/process.ts');
+  const { associateProject, readWorkspace } = require('../../src/main/storage/projects.ts');
+  const { DatabaseSync } = require('node:sqlite');
+  await fs.mkdir(path.resolve('.local-validation/m1-06'), { recursive: true });
+  const root = await fs.mkdtemp(path.resolve('.local-validation/m1-06/lease-write-failure-'));
+  const project = associateProject(root, root).project;
+  const database = new DatabaseSync(path.join(root, 'agentx.db'));
+  try { database.exec("CREATE TRIGGER reject_lease BEFORE INSERT ON runtime_leases BEGIN SELECT RAISE(ABORT,'synthetic-lease-write-error'); END"); }
+  finally { database.close(); }
+  let closed = 0;
+  t.mock.method(boundary, 'openExecutionCodex', async () => ({
+    identity: { pid: 1234, parentPid: process.pid, createdAt: new Date().toISOString(), executablePath: path.join(root, 'synthetic-codex.exe') },
+    transport: { call: async () => assert.fail('归属未落盘，不得派发任务') }, close: async () => { closed++; },
+  }));
+  const service = new ExecutionService(root, root, { captureExecution: async () => ({ modelId: 'deepseek-v4-flash',
+    configRevision: 1, credentialRef: randomUUID(), apiKey: 'synthetic-lease-key' }) });
+  t.after(() => service.close());
+  await assert.rejects(service.start({ taskId: randomUUID(), operationId: randomUUID(), projectId: project.projectId,
+    modelId: 'deepseek-v4-flash', configRevision: 1, text: '不应发送' }), /元数据.*失败/);
+  assert.equal(closed, 1);
+  assert.deepEqual(readWorkspace(root), { projects: [project], tasks: [] });
+  assert.match(service.read().error, /元数据.*失败/);
+  assert.deepEqual(require('../../src/main/storage/runtime-leases.ts').readRuntimeLeases(root), []);
+});
+
+test('准备失败且首次回收未确认：尚无发送意图时允许重试回收退出，不误报存在任务', async t => {
+  const { ExecutionService } = require('../../src/main/services/execution.ts');
+  const boundary = require('../../src/main/runtime/codex/process.ts');
+  const { associateProject, readWorkspace } = require('../../src/main/storage/projects.ts');
+  await fs.mkdir(path.resolve('.local-validation/m1-06'), { recursive: true });
+  const root = await fs.mkdtemp(path.resolve('.local-validation/m1-06/prepare-close-retry-'));
+  const project = associateProject(root, root).project;
+  await fs.writeFile(path.join(root, 'results'), '合成目录冲突');
+  let closes = 0;
+  t.mock.method(boundary, 'openExecutionCodex', async () => ({
+    identity: { pid: 1234, parentPid: process.pid, createdAt: new Date().toISOString(), executablePath: path.join(root, 'synthetic-codex.exe') },
+    transport: { call: async () => assert.fail('准备失败不得调用任务协议') },
+    close: async () => { if (++closes === 1) throw new Error('首次回收未确认'); },
+  }));
+  const service = new ExecutionService(root, root, { captureExecution: async () => ({ modelId: 'deepseek-v4-flash',
+    configRevision: 1, credentialRef: randomUUID(), apiKey: 'synthetic-retry-key' }) });
+  t.after(() => service.close());
+  await assert.rejects(service.start({ taskId: randomUUID(), operationId: randomUUID(), projectId: project.projectId,
+    modelId: 'deepseek-v4-flash', configRevision: 1, text: '不应发送' }), /回收未确认/);
+  assert.deepEqual(readWorkspace(root).tasks, []);
+  assert.equal(service.needsExitConfirmation(), true);
+  await service.shutdown();
+  assert.equal(closes, 2);
+  assert.equal(service.needsExitConfirmation(), false);
+  assert.equal(typeof require('../../src/main/storage/runtime-leases.ts').readRuntimeLeases(root)[0].releasedAt, 'string');
 });

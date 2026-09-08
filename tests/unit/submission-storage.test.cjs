@@ -95,9 +95,9 @@ test('发送意图迁移：v5 项目保留，升级前快照仍是可读取的 v
   const root = await fs.mkdtemp(path.join(base, 'submission-migration-'));
   const project = associateProject(root, root).project;
   const previous = new DatabaseSync(path.join(root, 'agentx.db'));
-  try { previous.exec('DROP TABLE drafts; DROP TABLE execution_intents; PRAGMA user_version=5'); } finally { previous.close(); }
+  try { previous.exec('DROP TABLE runtime_leases; DROP TABLE drafts; DROP TABLE execution_intents; PRAGMA user_version=5'); } finally { previous.close(); }
   assert.deepEqual(readWorkspace(root).projects, [project]);
-  const backups = (await fs.readdir(root)).filter(name => /^agentx\.before-v8\..+\.db$/.test(name));
+  const backups = (await fs.readdir(root)).filter(name => /^agentx\.before-v9\..+\.db$/.test(name));
   assert.equal(backups.length, 1);
   const backup = new DatabaseSync(path.join(root, backups[0]), { readOnly: true });
   try {
@@ -106,6 +106,6 @@ test('发送意图迁移：v5 项目保留，升级前快照仍是可读取的 v
     assert.equal(backup.prepare("SELECT 1 FROM sqlite_master WHERE name='execution_intents'").get(), undefined);
   } finally { backup.close(); }
   const current = new DatabaseSync(path.join(root, 'agentx.db'), { readOnly: true });
-  try { assert.equal(current.prepare('PRAGMA user_version').get().user_version, 8); }
+  try { assert.equal(current.prepare('PRAGMA user_version').get().user_version, 9); }
   finally { current.close(); }
 });

@@ -7,6 +7,7 @@ import lock from '../../../../runtime/codex.lock.json';
 import { CodexTransport } from './transport';
 import { initializeCodex } from './initialize';
 import { verifyExecutionConfiguration } from './configuration';
+import { readProcessIdentity } from '../../lifecycle/process-identity';
 
 interface ProcessOptions {
   resourcesDirectory: string;
@@ -21,7 +22,11 @@ export async function openExecutionCodex(options: ProcessOptions, handlers: Cons
   const runtime = await openCodex(options, handlers);
   try {
     await verifyExecutionConfiguration(runtime.transport, options.workingDirectory);
-    return runtime;
+    const identity = await readProcessIdentity(runtime.pid);
+    if (!identity || identity.parentPid !== process.pid || path.normalize(identity.executablePath).toLowerCase() !== path.normalize(runtime.binary).toLowerCase()) {
+      throw new Error('本实例引擎的进程身份未确认，禁止发送任务');
+    }
+    return { ...runtime, identity };
   } catch (error) {
     try { await runtime.close(); }
     catch (closeError) { throw new AggregateError([error, closeError], '引擎配置核对失败，且进程回收未确认；禁止发送任务'); }
@@ -79,7 +84,7 @@ export async function openCodex(options: ProcessOptions, handlers: ConstructorPa
   try {
     const hello = await initializeCodex(transport, home);
     if (!child.pid || exited) throw new Error('引擎在握手完成前已退出');
-    return { hello, transport, pid: child.pid, close };
+    return { hello, transport, pid: child.pid, binary, close };
   } catch (cause) {
     await close();
     const reason = cause instanceof Error ? cause.message : '未知启动错误';
