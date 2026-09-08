@@ -44,6 +44,8 @@ export function ProjectSidebar({ workspace, openWorkbench }: { workspace: Return
         {snapshot.tasks.filter(task => task.projectId === project.projectId).map(task => <li key={task.taskId}><button className="session-row" aria-label={task.title}
           aria-current={workspace.selectedTaskId === task.taskId ? 'page' : undefined}
           title={`${task.title}\n${task.directory}\n${taskStateLabel[task.executionState]}\n最近活动：${new Date(task.lastActivityAt).toLocaleString('zh-CN')}`}
+          onContextMenu={event => { event.preventDefault(); workspace.openTaskMenu(task, event.currentTarget, { x: event.clientX, y: event.clientY }); }}
+          onKeyDown={event => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); workspace.openTaskMenu(task, event.currentTarget); } }}
           onClick={() => { workspace.setSelectedProjectId(project.projectId); workspace.setSelectedTaskId(task.taskId); openWorkbench(); }}>
           <span className="session-title">{task.title}</span><TaskStatus state={task.executionState} lastActivityAt={task.lastActivityAt} /></button></li>)}
       </ul>}

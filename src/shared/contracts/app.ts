@@ -1,4 +1,4 @@
-import type { ProjectChoice, ProjectOperation, ProjectRename, ProjectRecord, WorkspaceSnapshot } from './projects';
+import type { ProjectChoice, ProjectOperation, ProjectRename, ProjectRecord, WorkspaceSnapshot, TaskRename, OrganizedTaskSummary } from './projects';
 import type { ExitAnswer, ExitSnapshot } from './lifecycle';
 import type { ReconciliationRequest, ReconciliationSnapshot } from './reconciliation';
 import type { ExecutionStart, ExecutionContinue, ExecutionControl, ExecutionSnapshot, ExecutionSteer, ExecutionApproval } from './execution';
@@ -43,6 +43,7 @@ export interface AgentXBridge {
   answerExecutionApproval(value: ExecutionApproval): Promise<void>;
   onExecutionChanged(listener: () => void): () => void;
   renameProject(value: ProjectRename): Promise<ProjectRecord>;
+  renameTask(value: TaskRename): Promise<OrganizedTaskSummary>;
   chooseProject(value: ProjectOperation): Promise<ProjectChoice>;
   onWorkspaceChanged(listener: () => void): () => void;
   getWorkspace(): Promise<WorkspaceSnapshot>;

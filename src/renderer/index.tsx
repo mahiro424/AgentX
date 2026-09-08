@@ -1,4 +1,6 @@
 import { ProjectEditor } from './shell/ProjectEditor';
+import { TaskEditor } from './shell/TaskEditor';
+import { TaskMenu } from './shell/TaskMenu';
 import { ExitDialog } from './shell/ExitDialog';
 import { useWorkspace } from './shell/useWorkspace';
 import { FolderIcon, ProjectSidebar } from './shell/ProjectSidebar';
@@ -237,6 +239,8 @@ function App() {
 
   return <div className="app-shell">
     {workspace.editing && <ProjectEditor project={workspace.editing} onSaved={() => void workspace.load()} onClose={workspace.closeEditor} />}
+    {workspace.taskMenu && <TaskMenu menu={workspace.taskMenu} onRename={workspace.startTaskEditing} onClose={workspace.closeTaskMenu} />}
+    {workspace.editingTask && <TaskEditor task={workspace.editingTask} onSaved={() => void workspace.load()} onClose={workspace.closeTaskEditor} />}
     {sidebarOpen && <aside ref={sidebar} className="sidebar" aria-label="侧栏" style={{ width: sidebarWidth }}>
       <header className="brand drag-region"><span>AgentX</span><button ref={sidebarToggle} className="icon-button" aria-label="收起侧栏" onClick={toggleSidebar}><PanelIcon /></button></header>
       <button className="new-session" onClick={newSession}>
@@ -263,7 +267,11 @@ function App() {
       <div className={`workbench-layout${resultsOpen || outputItem ? ' has-results' : ''}`} hidden={view !== 'workbench'}>
       <main className={`welcome${selectedTask || currentExecution?.task || reconciliationTaskId ? ' execution-workbench' : ''}`}>
         <div className="welcome-heading">
-          <h1 title={selectedTask?.title}>{selectedTask?.title ?? '今天想完成什么工作？'}</h1>
+          <div className="task-heading"><h1 title={selectedTask?.title}>{selectedTask?.title ?? '今天想完成什么工作？'}</h1>
+            {selectedTask && <button className="icon-button" aria-label="会话操作" title="会话操作" aria-haspopup="menu"
+              aria-expanded={workspace.taskMenu?.task.taskId === selectedTask.taskId}
+              onClick={event => workspace.openTaskMenu(selectedTask, event.currentTarget)}>⋯</button>}
+          </div>
           <p>{currentState ? currentState === 'stopping' ? '正在停止，等待引擎确认…' : taskStateLabel[currentState] : selectedTask ? taskStateLabel[selectedTask.executionState] : '用自然语言描述目标，在这里开始工作。'}</p>
           {canInspect && <button ref={resultsTrigger} className="secondary-button inspect-results" aria-label="查看文件改动" aria-expanded={resultsOpen} onClick={() => { setOutputSelection(null); setResultsTask(selectedTask!.taskId); }}>查看文件改动</button>}
         </div>

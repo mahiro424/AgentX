@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ProjectSummary, WorkspaceSnapshot } from '../../shared/contracts/projects';
+import type { ProjectSummary, WorkspaceSnapshot, OrganizedTaskSummary } from '../../shared/contracts/projects';
+
+export interface TaskMenuState { task: OrganizedTaskSummary; trigger: HTMLElement; x: number; y: number }
 
 export function useWorkspace() {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
@@ -12,6 +14,23 @@ export function useWorkspace() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ProjectSummary | null>(null);
   const editTrigger = useRef<HTMLElement | null>(null);
+  const [taskMenu, setTaskMenu] = useState<TaskMenuState | null>(null);
+  const [editingTask, setEditingTask] = useState<OrganizedTaskSummary | null>(null);
+  const taskEditTrigger = useRef<HTMLElement | null>(null);
+  function openTaskMenu(task: OrganizedTaskSummary, trigger: HTMLElement, point?: { x: number; y: number }) {
+    const box = trigger.getBoundingClientRect();
+    setTaskMenu({ task, trigger, x: Math.max(8, Math.min(point?.x ?? box.left, innerWidth - 204)),
+      y: Math.max(8, Math.min(point?.y ?? box.bottom + 8, innerHeight - 68)) });
+  }
+  function closeTaskMenu(restoreFocus = true) {
+    if (restoreFocus) restoreTaskFocus(taskMenu?.trigger ?? null);
+    setTaskMenu(null);
+  }
+  function startTaskEditing() {
+    if (!taskMenu) return;
+    taskEditTrigger.current = taskMenu.trigger; setEditingTask(taskMenu.task); setTaskMenu(null);
+  }
+  function closeTaskEditor() { setEditingTask(null); requestAnimationFrame(() => restoreTaskFocus(taskEditTrigger.current)); }
   function startEditing(project: ProjectSummary, trigger: HTMLElement) { editTrigger.current = trigger; setEditing(project); }
   function closeEditor() {
     setEditing(null);
@@ -47,5 +66,11 @@ export function useWorkspace() {
     } catch (cause) { setActionError(cause instanceof Error ? cause.message : '项目关联失败'); }
     finally { setChoosing(false); }
   }
-  return { editing, startEditing, closeEditor, snapshot, loading, error, actionError, choosing, notice, selectedProjectId, setSelectedProjectId, selectedTaskId, setSelectedTaskId, load, choose };
+  return { editing, startEditing, closeEditor, taskMenu, openTaskMenu, closeTaskMenu, editingTask, startTaskEditing, closeTaskEditor,
+    snapshot, loading, error, actionError, choosing, notice, selectedProjectId, setSelectedProjectId, selectedTaskId, setSelectedTaskId, load, choose };
+}
+
+function restoreTaskFocus(trigger: HTMLElement | null) {
+  if (trigger?.isConnected) trigger.focus();
+  else document.querySelector<HTMLElement>('[aria-label="展开侧栏"], #task-draft')?.focus();
 }

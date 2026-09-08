@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { EXECUTION_STATES, type TaskSummary } from '../../shared/contracts/projects';
+import { EXECUTION_STATES, type TaskSummary, type OrganizedTaskSummary, type TaskRename } from '../../shared/contracts/projects';
 import { withDatabase } from './database';
 import { FLASH_MODEL_ID } from '../../shared/contracts/models';
 import type { ReconciliationIntent } from '../../shared/contracts/reconciliation';
@@ -38,7 +38,8 @@ export function createTaskRecord(root: string, value: TaskSummary): void {
 function insertTask(database: DatabaseSync, value: TaskSummary): void {
   const project = database.prepare('SELECT directory FROM projects WHERE project_id=?').get(value.projectId);
   if (!project || project.directory !== value.directory) throw new Error('invalid-project-binding');
-  database.prepare('INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(value.taskId, value.projectId, value.title,
+  database.prepare(`INSERT INTO tasks (task_id,project_id,title,directory,created_at,last_activity_at,observed_at,execution_state,thread_id,turn_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(value.taskId, value.projectId, value.title,
     value.directory, value.lastActivityAt, value.lastActivityAt, value.observedAt, value.executionState, value.threadId, value.turnId);
 }
 
@@ -122,11 +123,15 @@ export function acknowledgeSubmission(root: string, taskId: string, operationId:
 }
 
 export function readTaskRecords(database: DatabaseSync): TaskSummary[] {
-  return database.prepare('SELECT * FROM tasks ORDER BY last_activity_at DESC, task_id').all().map(row => validateTask({
+  return database.prepare('SELECT * FROM tasks ORDER BY last_activity_at DESC, task_id').all().map(taskFromRow);
+}
+
+function taskFromRow(row: Record<string, unknown>): TaskSummary {
+  return validateTask({
     taskId: row.task_id as string, projectId: row.project_id as string, title: row.title as string, directory: row.directory as string,
     lastActivityAt: row.last_activity_at as string, observedAt: row.observed_at as string, executionState: row.execution_state as TaskSummary['executionState'],
     threadId: row.thread_id as string | null, turnId: row.turn_id as string | null,
-  }));
+  });
 }
 
 export function readTaskSubmissionIntents(root: string, taskId: string): ReconciliationIntent[] {
@@ -142,6 +147,28 @@ export function readTaskSubmissionIntents(root: string, taskId: string): Reconci
     }
     return value;
   }));
+}
+
+function organizedTaskFromRow(row: Record<string, unknown>): OrganizedTaskSummary {
+  if (typeof row.organization_revision !== 'number' || !Number.isSafeInteger(row.organization_revision) || row.organization_revision < 0) {
+    throw new Error('invalid-task-organization-revision');
+  }
+  return { ...taskFromRow(row), organizationRevision: row.organization_revision };
+}
+
+export function readOrganizedTaskRecords(database: DatabaseSync): OrganizedTaskSummary[] {
+  return database.prepare('SELECT * FROM tasks ORDER BY last_activity_at DESC, task_id').all().map(organizedTaskFromRow);
+}
+
+export function renameTask(root: string, request: TaskRename): OrganizedTaskSummary | null {
+  return withDatabase(root, database => {
+    database.exec('BEGIN IMMEDIATE');
+    const row = database.prepare(`UPDATE tasks SET title=?, organization_revision=organization_revision+1
+      WHERE task_id=? AND organization_revision=? RETURNING *`).get(request.title, request.taskId, request.expectedRevision);
+    const value = row ? organizedTaskFromRow(row) : null;
+    database.exec('COMMIT');
+    return value;
+  });
 }
 
 export function beginTaskContinuation(root: string, previous: TaskSummary, intent: SubmissionInput): void {

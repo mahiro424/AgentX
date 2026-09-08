@@ -1,8 +1,9 @@
 import { dialog, type BrowserWindow } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { ProjectChoice, ProjectRename, ProjectRecord, ProjectSummary, TaskSummary, WorkspaceSnapshot } from '../../shared/contracts/projects';
+import type { ProjectChoice, ProjectRename, ProjectRecord, ProjectSummary, TaskSummary, WorkspaceSnapshot, TaskRename, OrganizedTaskSummary } from '../../shared/contracts/projects';
 import { associateProject, readWorkspace, renameProject } from '../storage/projects';
+import { renameTask } from '../storage/tasks';
 
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
 
@@ -30,9 +31,20 @@ export class ProjectService {
     const current = this.readCurrentTask();
     return { projects,
       tasks: records.tasks.map(task => current?.taskId === task.taskId && current.projectId === task.projectId && current.directory === task.directory
-        ? { ...current }
+        ? { ...task, ...current, title: task.title, organizationRevision: task.organizationRevision }
         : { ...task, executionState: ['idle', 'completed', 'failed', 'interrupted', 'unconfirmed'].includes(task.executionState) ? task.executionState : 'reconciling' }),
     };
+  }
+
+  renameTask(request: unknown): OrganizedTaskSummary {
+    if (!request || typeof request !== 'object' || Array.isArray(request) || Object.keys(request).length !== 4 ||
+        !('operationId' in request) || !uuid(request.operationId) || !('taskId' in request) || !uuid(request.taskId) ||
+        !('expectedRevision' in request) || !Number.isSafeInteger(request.expectedRevision) || Number(request.expectedRevision) < 0 ||
+        !('title' in request) || typeof request.title !== 'string' || !request.title.trim() || request.title.trim().length > 500 ||
+        /[\u0000-\u001f\u007f]/u.test(request.title)) throw new Error('会话名称或编辑请求无效，名称需为 1 至 500 个字符');
+    const value = renameTask(this.root, { ...request, title: request.title.trim() } as TaskRename);
+    if (!value) throw new Error('会话已被其他操作更新或不存在，请重新打开编辑；本次输入未保存');
+    return value;
   }
 
   rename(request: unknown): ProjectRecord {

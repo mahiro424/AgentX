@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { ProjectChoice, ProjectRename, ProjectRecord, TaskSummary } from '../../shared/contracts/projects';
+import type { ProjectChoice, ProjectRename, ProjectRecord, OrganizedTaskSummary } from '../../shared/contracts/projects';
 import { withDatabase } from './database';
-import { readTaskRecords } from './tasks';
+import { readOrganizedTaskRecords } from './tasks';
 
 function projectFromRow(row: Record<string, unknown>): ProjectRecord {
   if (typeof row.project_id !== 'string' || !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(row.project_id) ||
@@ -14,7 +14,7 @@ function projectFromRow(row: Record<string, unknown>): ProjectRecord {
   return { projectId: row.project_id, displayName: row.display_name, directory: row.directory, createdAt: row.created_at, revision: row.revision };
 }
 
-export function readWorkspace(root: string): { projects: ProjectRecord[]; tasks: TaskSummary[] } {
+export function readWorkspace(root: string): { projects: ProjectRecord[]; tasks: OrganizedTaskSummary[] } {
   try { fs.lstatSync(path.join(root, 'agentx.db')); }
   catch (cause) {
     if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return { projects: [], tasks: [] };
@@ -22,7 +22,7 @@ export function readWorkspace(root: string): { projects: ProjectRecord[]; tasks:
   }
   return withDatabase(root, database => {
     const projects = database.prepare('SELECT * FROM projects ORDER BY created_at, project_id').all().map(projectFromRow);
-    const tasks = readTaskRecords(database);
+    const tasks = readOrganizedTaskRecords(database);
     const directories = new Map(projects.map(project => [project.projectId, project.directory]));
     // M1 没有目录重联；孤儿或错目录记录不能被列表分组静默藏掉。
     if (tasks.some(task => directories.get(task.projectId) !== task.directory)) throw new Error('invalid-task-project-binding');

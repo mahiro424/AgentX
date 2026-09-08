@@ -98,6 +98,10 @@ button, textarea { -webkit-app-region: no-drag; }
 .window-bar { height: 44px; display: flex; align-items: center; gap: var(--space-tight); padding: 0 148px 0 var(--space-control); }
 .welcome { width: min(760px, calc(100% - 96px)); margin: clamp(80px, 19vh, 180px) auto var(--space-section); }
 .welcome-heading { text-align: center; margin-bottom: 32px; }
+.task-heading { display: flex; align-items: center; justify-content: center; gap: var(--space-tight); }
+.task-heading h1 { min-width: 0; }
+.task-heading .icon-button { flex-shrink: 0; }
+.execution-workbench .task-heading { justify-content: space-between; }
 h1 { margin: 0; font-size: 24px; line-height: 32px; font-weight: 600; }
 .welcome-heading p { color: var(--text-secondary); margin: var(--space-control) 0 0; }
 .execution-workbench { margin-top: var(--space-section); height: calc(100vh - 92px); min-height: 0; display: flex; flex-direction: column; }

@@ -7,11 +7,11 @@ export function withDatabase<T>(root: string, action: (database: DatabaseSync) =
   try {
     database = new DatabaseSync(path.join(root, 'agentx.db'));
     const version = database.prepare('PRAGMA user_version').get()?.user_version;
-    if (typeof version !== 'number' || !Number.isInteger(version) || version < 0 || version > 9) throw new Error('unsupported-version');
+    if (typeof version !== 'number' || !Number.isInteger(version) || version < 0 || version > 10) throw new Error('unsupported-version');
     if (version === 0 && database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").get()) throw new Error('unknown-schema');
     database.exec('PRAGMA foreign_keys=ON');
-    if (version < 9) {
-      if (version > 0) database.prepare('VACUUM INTO ?').run(path.join(root, `agentx.before-v9.${randomUUID()}.db`));
+    if (version < 10) {
+      if (version > 0) database.prepare('VACUUM INTO ?').run(path.join(root, `agentx.before-v10.${randomUUID()}.db`));
       database.exec('BEGIN IMMEDIATE');
     }
     if (version === 0) {
@@ -73,7 +73,11 @@ export function withDatabase<T>(root: string, action: (database: DatabaseSync) =
         task_id TEXT NOT NULL, operation_id TEXT NOT NULL UNIQUE, project_id TEXT NOT NULL REFERENCES projects(project_id),
         process_identity TEXT NOT NULL, created_at TEXT NOT NULL, work_started INTEGER NOT NULL DEFAULT 0 CHECK(work_started IN (0,1)),
         root_closed_at TEXT, released_at TEXT);
-        PRAGMA user_version=9; COMMIT;`);
+        PRAGMA user_version=9;`);
+    }
+    if (version < 10) {
+      database.exec(`ALTER TABLE tasks ADD COLUMN organization_revision INTEGER NOT NULL DEFAULT 0 CHECK(organization_revision >= 0);
+        PRAGMA user_version=10; COMMIT;`);
     }
     return action(database);
   } catch (cause) {
