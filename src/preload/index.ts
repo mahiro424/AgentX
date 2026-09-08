@@ -1,5 +1,7 @@
 import { PROJECT_RENAME_CHANNEL, type ProjectRename, type ProjectRecord, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, type ProjectOperation, type ProjectChoice, WORKSPACE_READ_CHANNEL, type WorkspaceSnapshot } from '../shared/contracts/projects';
 import { contextBridge, ipcRenderer } from 'electron';
+import { TASK_SEARCH_CHANNEL, TASK_SEARCH_LOCATE_CHANNEL, SEARCH_INDEX_READ_CHANNEL, SEARCH_INDEX_REBUILD_CHANNEL, SEARCH_INDEX_CHANGED_CHANNEL,
+  type TaskSearchRequest, type TaskSearchSnapshot, type TaskSearchTarget, type TaskSearchLocation, type SearchIndexState } from '../shared/contracts/search';
 import { TASK_RENAME_CHANNEL, TASK_PIN_CHANNEL, TASK_ARCHIVE_CHANNEL, type TaskRename, type TaskPin, type TaskArchive, type OrganizedTaskSummary } from '../shared/contracts/projects';
 import { RECONCILIATION_READ_CHANNEL, type ReconciliationRequest, type ReconciliationSnapshot } from '../shared/contracts/reconciliation';
 import { EXIT_READ_CHANNEL, EXIT_ANSWER_CHANNEL, EXIT_CHANGED_CHANNEL, type ExitAnswer, type ExitSnapshot } from '../shared/contracts/lifecycle';
@@ -13,6 +15,16 @@ import { APP_INFO_CHANNEL, OUTPUT_COPY_CHANNEL, PREFERENCES_READ_CHANNEL, PREFER
 import { MODEL_SETTINGS_CHANGED_CHANNEL, MODEL_TEST_CHANNEL, type ModelTestRequest, MODEL_SETTINGS_READ_CHANNEL, MODEL_KEY_SAVE_CHANNEL, MODEL_KEY_REVEAL_CHANNEL, MODEL_SETTINGS_VISIBLE_CHANNEL, MODEL_ENABLED_CHANNEL, MODEL_CATALOG_FETCH_CHANNEL, MODEL_SELECTION_CHANNEL, MODEL_ACTIVE_CHANNEL, type ModelSelectionChange, type ActiveModelChange, type ConnectionChange, type KeySubmission, type ModelOperation, type ModelSettings } from '../shared/contracts/models';
 
 const bridge: AgentXBridge = Object.freeze({
+  searchTasks: (value: TaskSearchRequest): Promise<TaskSearchSnapshot> => ipcRenderer.invoke(TASK_SEARCH_CHANNEL, value),
+  locateSearchHit: (value: TaskSearchTarget): Promise<TaskSearchLocation> => ipcRenderer.invoke(TASK_SEARCH_LOCATE_CHANNEL, value),
+  getSearchIndexState: (): Promise<SearchIndexState> => ipcRenderer.invoke(SEARCH_INDEX_READ_CHANNEL),
+  rebuildSearchIndex: (): Promise<void> => ipcRenderer.invoke(SEARCH_INDEX_REBUILD_CHANNEL),
+  onSearchIndexChanged: (listener: () => void): (() => void) => {
+    if (typeof listener !== 'function') throw new Error('搜索索引监听器无效');
+    const notify = () => listener();
+    ipcRenderer.on(SEARCH_INDEX_CHANGED_CHANNEL, notify);
+    return () => ipcRenderer.removeListener(SEARCH_INDEX_CHANGED_CHANNEL, notify);
+  },
   getReconciliation: (value: ReconciliationRequest): Promise<ReconciliationSnapshot> => ipcRenderer.invoke(RECONCILIATION_READ_CHANNEL, value),
   getExitState: (): Promise<ExitSnapshot> => ipcRenderer.invoke(EXIT_READ_CHANNEL),
   answerExit: (value: ExitAnswer): Promise<void> => ipcRenderer.invoke(EXIT_ANSWER_CHANNEL, value),

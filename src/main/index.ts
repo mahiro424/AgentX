@@ -1,4 +1,6 @@
 import { ProjectService } from './services/projects';
+import { TaskSearchService } from './services/task-search';
+import { TASK_SEARCH_CHANNEL, TASK_SEARCH_LOCATE_CHANNEL, SEARCH_INDEX_READ_CHANNEL, SEARCH_INDEX_REBUILD_CHANNEL, SEARCH_INDEX_CHANGED_CHANNEL } from '../shared/contracts/search';
 import { createProductTray } from './lifecycle/tray';
 import { readDraft, saveDraft } from './storage/drafts';
 import { DRAFT_READ_CHANNEL, DRAFT_SAVE_CHANNEL } from '../shared/contracts/drafts';
@@ -50,6 +52,9 @@ const execution = new ExecutionService(dataRoot, app.isPackaged ? process.resour
   }
 });
 const projects = new ProjectService(dataRoot, () => execution.read().task, taskId => execution.prepareTaskArchive(taskId));
+const search = new TaskSearchService(dataRoot, request => execution.readHistory(request), () => {
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.getURL() === mainWindowURL) mainWindow.webContents.send(SEARCH_INDEX_CHANGED_CHANNEL);
+});
 let modelSettingsVisible = false;
 
 function updateExitState(value: ExitSnapshot): void {
@@ -61,7 +66,10 @@ function updateExitState(value: ExitSnapshot): void {
 
 function stopAndExit(requestId: string): void {
   updateExitState({ state: 'stopping', requestId, error: null });
-  void execution.shutdown().then(() => { engineClosed = true; app.quit(); }).catch(error => {
+  // 阻止后续索引读取，但不延迟正在运行的 Agent 收到停止；退出结果等待两个回收都结束。
+  const indexing = search.pause();
+  void execution.shutdown().finally(() => indexing).then(() => { engineClosed = true; app.quit(); }).catch(error => {
+    search.resume();
     updateExitState({ state: 'error', requestId, error: error instanceof Error ? error.message : '退出结果未确认，请核对任务与进程' });
     showWindow();
   });
@@ -193,6 +201,22 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(TASK_HISTORY_READ_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 1);
       return execution.readHistory(args[0]);
+    });
+    ipcMain.handle(TASK_SEARCH_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return search.query(args[0]);
+    });
+    ipcMain.handle(TASK_SEARCH_LOCATE_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return search.locate(args[0]);
+    });
+    ipcMain.handle(SEARCH_INDEX_READ_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 0);
+      return search.getIndexState();
+    });
+    ipcMain.handle(SEARCH_INDEX_REBUILD_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 0);
+      return search.rebuild();
     });
     ipcMain.handle(RECONCILIATION_READ_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 1);
