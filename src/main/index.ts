@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { APP_INFO_CHANNEL, PREFERENCES_READ_CHANNEL, PREFERENCES_SAVE_CHANNEL, type AppInfo, type Preferences } from '../shared/contracts/app';
 import { readPreferences, savePreferences } from './storage/preferences';
+import { MODEL_SETTINGS_CHANGED_CHANNEL, MODEL_TEST_CHANNEL, MODEL_SETTINGS_READ_CHANNEL, MODEL_KEY_SAVE_CHANNEL, MODEL_KEY_REVEAL_CHANNEL, MODEL_SETTINGS_VISIBLE_CHANNEL, MODEL_ENABLED_CHANNEL, MODEL_CATALOG_FETCH_CHANNEL, MODEL_SELECTION_CHANNEL, MODEL_ACTIVE_CHANNEL } from '../shared/contracts/models';
+import { ModelService } from './services/models';
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -19,12 +21,24 @@ app.setPath('sessionData', path.join(dataRoot, 'chromium'));
 app.setAppUserModelId('AgentX');
 
 let mainWindow: BrowserWindow | null = null;
+const models = new ModelService(dataRoot);
+let modelSettingsVisible = false;
 
 function requireProductFrame(event: Electron.IpcMainInvokeEvent, actualCount: number, expectedCount: number): void {
   if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame ||
       event.senderFrame.url !== mainWindowURL || actualCount !== expectedCount) {
     throw new Error('拒绝非产品主页面或无效参数的请求');
   }
+}
+
+async function changeModels<T>(action: () => T | Promise<T>): Promise<T> {
+  const notify = () => {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.getURL() === mainWindowURL) {
+      mainWindow.webContents.send(MODEL_SETTINGS_CHANGED_CHANNEL);
+    }
+  };
+  try { const result = action(); notify(); return await result; }
+  finally { notify(); }
 }
 
 function applyPreferences(value: Preferences): void {
@@ -51,6 +65,7 @@ function createWindow(): void {
     },
   });
   const window = mainWindow;
+  window.on('blur', () => { modelSettingsVisible = false; });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.on('will-attach-webview', event => event.preventDefault());
@@ -89,6 +104,46 @@ if (!app.requestSingleInstanceLock()) {
       const value = readPreferences(dataRoot);
       applyPreferences(value);
       return value;
+    });
+    ipcMain.handle(MODEL_SETTINGS_READ_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 0);
+      return models.read();
+    });
+    ipcMain.handle(MODEL_KEY_SAVE_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return changeModels(() => models.saveKey(args[0]));
+    });
+    ipcMain.handle(MODEL_SETTINGS_VISIBLE_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      if (typeof args[0] !== 'boolean') throw new Error('设置页面状态无效');
+      modelSettingsVisible = args[0] && !!mainWindow?.isFocused();
+    });
+    ipcMain.handle(MODEL_ENABLED_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return changeModels(() => models.setEnabled(args[0]));
+    });
+    ipcMain.handle(MODEL_SELECTION_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return changeModels(() => models.setSelection(args[0]));
+    });
+    ipcMain.handle(MODEL_ACTIVE_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return changeModels(() => models.setActive(args[0]));
+    });
+    ipcMain.handle(MODEL_TEST_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return changeModels(() => models.test(args[0]));
+    });
+    ipcMain.handle(MODEL_CATALOG_FETCH_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return changeModels(() => models.fetchCatalog(args[0]));
+    });
+    ipcMain.handle(MODEL_KEY_REVEAL_CHANNEL, async (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      if (!modelSettingsVisible || !mainWindow?.isFocused()) throw new Error('只能在前台模型设置中查看密钥');
+      const plaintext = await models.reveal(args[0]);
+      if (!modelSettingsVisible || !mainWindow?.isFocused()) throw new Error('已离开安全显示环境，本次不返回密钥');
+      return plaintext;
     });
     ipcMain.handle(PREFERENCES_SAVE_CHANNEL, (event, ...args): Preferences => {
       requireProductFrame(event, args.length, 1);

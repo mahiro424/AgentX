@@ -13,7 +13,7 @@ function validate(value: unknown): Preferences {
   return { theme: candidate.theme as Preferences['theme'], zoom: candidate.zoom };
 }
 
-function readConfiguration(root: string): Record<string, unknown> & { schemaVersion: number; preferences: Preferences } {
+export function readConfiguration(root: string): Record<string, unknown> & { schemaVersion: number; preferences: Preferences } {
   const file = path.join(root, 'config.json');
   let text: string;
   try {
@@ -39,17 +39,21 @@ export function readPreferences(root: string): Preferences {
 export function savePreferences(root: string, value: unknown): Preferences {
   const preferences = validate(value);
   const configuration = readConfiguration(root);
+  writeConfiguration(root, { ...configuration, preferences });
+  return preferences;
+}
+
+export function writeConfiguration(root: string, configuration: Record<string, unknown>): void {
   const temporary = path.join(root, `config-${randomUUID()}.tmp`);
   try {
     // Main 同步串行写入小配置；同目录替换避免失败时留下半份配置。
-    fs.writeFileSync(temporary, JSON.stringify({ ...configuration, preferences }, null, 2) + '\n', { encoding: 'utf8', flag: 'wx' });
+    fs.writeFileSync(temporary, JSON.stringify(configuration, null, 2) + '\n', { encoding: 'utf8', flag: 'wx' });
     fs.renameSync(temporary, path.join(root, 'config.json'));
   } catch (cause) {
-    throw new Error(`无法保存本地偏好（${(cause as NodeJS.ErrnoException).code ?? '文件写入失败'}），原偏好未变更`);
+    throw new Error(`无法保存本地配置（${(cause as NodeJS.ErrnoException).code ?? '文件写入失败'}），原配置未变更`);
   } finally {
     try { fs.unlinkSync(temporary); } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') console.error('偏好临时文件未能清理，请检查数据目录权限');
+      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') console.error('配置临时文件未能清理，请检查数据目录权限');
     }
   }
-  return preferences;
 }
