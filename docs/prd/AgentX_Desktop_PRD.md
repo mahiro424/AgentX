@@ -1,6 +1,6 @@
 # AgentX_Desktop_PRD
 
-版本：v0.3 / V1 基线与 M1 实施范围。日期：2026-09-07。状态：V1 交互与 v0.3 采用图已确认，M1 实施计划已批准。原版 Codex 0.153.4 + `deepseek-v4-flash` 已完成有限范围的真实工作验证，见[G1 核心报告](../validation/AgentX_Compatibility_Evidence.md#evidence-g1)；[首轮 G0 失败记录](../validation/AgentX_Compatibility_Evidence.md#evidence-g0-first)保留。已有部分 Electron/React 脚手架及测试，Renderer 仍为空，尚未交付可用桌面应用；远程 Issue、PR 与 CI 门禁待完成。
+版本：v0.3 / V1 基线与 M1 实施范围。基线日期：2026-09-07；进度更新：2026-09-08。V1 交互与 v0.3 采用图、M1 实施计划已批准。原版 Codex 0.153.4 + `deepseek-v4-flash` 已完成有限范围的真实工作验证，见[G1 核心报告](../validation/AgentX_Compatibility_Evidence.md#evidence-g1)；[首轮 G0 失败记录](../validation/AgentX_Compatibility_Evidence.md#evidence-g0-first)保留。文档、设计、M1-01 外框和 M1-02 模型设置已通过正式 Issue/PR/CI 合入 m1，用户已确认相应 UI，Renderer 不再为空。M1-03 项目与会话入口在独立分支实现及验证，本切片视觉已确认，待 CI 与集成；真实任务闭环仍未交付。各切片状态见[工单门禁](../plans/AgentX_M1_Issue_Gates.md)，不以本段进度更新改变既定 V1 范围。
 
 ## 问题陈述
 

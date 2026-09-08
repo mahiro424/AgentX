@@ -90,3 +90,9 @@
 ## 6. 技术资料
 
 按 Context7 检索并对照本地依赖/真实运行确认：[Electron safeStorage](https://github.com/electron/electron/blob/main/docs/api/safe-storage.md)、[Electron IPC 安全边界](https://github.com/electron/electron/blob/main/docs/tutorial/security.md)、[DeepSeek 模型目录](https://api-docs.deepseek.com/api/list-models)、[DeepSeek Responses API](https://api-docs.deepseek.com/api/create-response)。最小测试关闭 reasoning，输出上限 32，不携带项目上下文；连接测试不等于完整 Agent 兼容性验证。
+
+## 7. 用户确认与集成补记
+
+用户回复“符合，继续”，确认本页视觉。当前头部 `f309b4d55eef06138ad093cb05548eedf2563d13` 的 [Windows PR CI](https://github.com/mahiro424/AgentX/actions/runs/34181726579)、[分支 CI](https://github.com/mahiro424/AgentX/actions/runs/34181691074) 与 [文档 CI](https://github.com/mahiro424/AgentX/actions/runs/34181726613) 均通过。
+
+[PR #15](https://github.com/mahiro424/AgentX/pull/15) 已于 2026-09-08 合入 m1，合并提交 `146fb37537c4cc3ae64fa814eef5627be3e38ba3`；#7 已关闭，m1-02 分支保留，master 未修改。此前待确认文字为当时事实；本次只解除本切片视觉/集成门禁，不宣称 M1 全部完成。pendingEffect、真实模型任务与实际 IME/系统缩放仍按前文分期执行。

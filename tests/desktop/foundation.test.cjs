@@ -220,7 +220,7 @@ test('IPC：仅暴露产品桥，拒绝非法偏好且不更改原配置', { tim
   const { app, page, data } = await launch();
   t.after(() => app.close());
   const surface = await page.evaluate(() => ({ keys: Object.keys(window.agentx).sort(), frozen: Object.isFrozen(window.agentx), nodeAccess: typeof window.require }));
-  assert.deepEqual(surface, { keys: ['fetchModelCatalog', 'getAppInfo', 'getModelSettings', 'getPreferences', 'onModelSettingsChanged', 'revealModelKey', 'saveModelKey', 'savePreferences', 'setActiveModel', 'setModelConnectionEnabled', 'setModelSettingsVisible', 'setSelectedModels', 'testModel'], frozen: true, nodeAccess: 'undefined' });
+  assert.deepEqual(surface, { keys: ['chooseProject', 'fetchModelCatalog', 'getAppInfo', 'getModelSettings', 'getPreferences', 'getWorkspace', 'onModelSettingsChanged', 'onWorkspaceChanged', 'renameProject', 'revealModelKey', 'saveModelKey', 'savePreferences', 'setActiveModel', 'setModelConnectionEnabled', 'setModelSettingsVisible', 'setSelectedModels', 'testModel'], frozen: true, nodeAccess: 'undefined' });
   await page.evaluate(() => window.agentx.savePreferences({ theme: 'light', zoom: 1 }));
   const previous = await fs.readFile(path.join(data, 'config.json'), 'utf8');
   for (const invalid of [null, [], { theme: 'dark', zoom: 2 }, { theme: 'unknown', zoom: 1 }, { theme: 'dark', zoom: 1, extra: true }]) {

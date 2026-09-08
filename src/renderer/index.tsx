@@ -1,3 +1,6 @@
+import { ProjectEditor } from './shell/ProjectEditor';
+import { useWorkspace } from './shell/useWorkspace';
+import { FolderIcon, ProjectSidebar } from './shell/ProjectSidebar';
 import { createRoot } from 'react-dom/client';
 import { useEffect, useRef, useState } from 'react';
 import type { AppInfo, Preferences } from '../shared/contracts/app';
@@ -6,6 +9,9 @@ import { ModelSettings } from './pages/ModelSettings';
 import { ModelPicker } from './components/ModelPicker';
 
 function App() {
+  const workspace = useWorkspace();
+  const selectedProject = workspace.snapshot?.projects.find(project => project.projectId === workspace.selectedProjectId);
+  const selectedTask = workspace.snapshot?.tasks.find(task => task.taskId === workspace.selectedTaskId);
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [error, setError] = useState('');
   const [draft, setDraft] = useState('');
@@ -25,6 +31,8 @@ function App() {
     setView('workbench');
     requestAnimationFrame(() => input.current?.focus());
   }
+
+  function newSession() { workspace.setSelectedTaskId(null); openWorkbench(); }
 
   async function updatePreferences(value: Preferences) {
     setSaving(true);
@@ -74,12 +82,13 @@ function App() {
   useEffect(() => { void readAppInfo(); }, []);
 
   return <div className="app-shell">
+    {workspace.editing && <ProjectEditor project={workspace.editing} onSaved={() => void workspace.load()} onClose={workspace.closeEditor} />}
     {sidebarOpen && <aside ref={sidebar} className="sidebar" aria-label="侧栏" style={{ width: sidebarWidth }}>
       <header className="brand drag-region"><span>AgentX</span><button ref={sidebarToggle} className="icon-button" aria-label="收起侧栏" onClick={toggleSidebar}><PanelIcon /></button></header>
-      <button className="new-session" onClick={openWorkbench}>
+      <button className="new-session" onClick={newSession}>
         <span aria-hidden="true">＋</span>新会话
       </button>
-      <div className="sidebar-empty"><p>尚无项目或会话</p><span>可以先在工作台写下目标。</span></div>
+      <ProjectSidebar workspace={workspace} openWorkbench={openWorkbench} />
       <footer className="sidebar-footer">
         <span className="local-avatar" aria-hidden="true">本</span>
         <span>本地<span className="version">{info ? `v${info.version}` : '正在打开'}</span></span>
@@ -96,13 +105,19 @@ function App() {
         }} />
     </aside>}
     <div className="workspace">
-      <header className="window-bar drag-region">{!sidebarOpen && <><button ref={sidebarToggle} className="icon-button" aria-label="展开侧栏" onClick={toggleSidebar}><PanelIcon /></button><button className="icon-button" aria-label="新会话" onClick={openWorkbench}>＋</button><button className="icon-button" aria-label="设置" onClick={() => setView('settings')}><SettingsIcon /></button></>}</header>
+      <header className="window-bar drag-region">{!sidebarOpen && <><button ref={sidebarToggle} className="icon-button" aria-label="展开侧栏" onClick={toggleSidebar}><PanelIcon /></button><button className="icon-button" aria-label="新会话" onClick={newSession}>＋</button><button className="icon-button" aria-label="设置" onClick={() => setView('settings')}><SettingsIcon /></button></>}</header>
       <main className="welcome" hidden={view !== 'workbench'}>
         <div className="welcome-heading">
-          <h1>今天想完成什么工作？</h1>
-          <p>用自然语言描述目标，在这里开始工作。</p>
+          <h1>{selectedTask?.title ?? '今天想完成什么工作？'}</h1>
+          <p>{selectedTask ? '当前仅展示产品会话记录；执行内容与历史读取尚未接入。' : '用自然语言描述目标，在这里开始工作。'}</p>
         </div>
-        <div className="location"><span aria-hidden="true">▱</span>未关联项目</div>
+        <div className="location"><FolderIcon /><select aria-label="工作目录" value={workspace.selectedProjectId ?? ''} disabled={workspace.choosing || !workspace.snapshot}
+          title={workspace.snapshot?.projects.find(project => project.projectId === workspace.selectedProjectId)?.directory}
+          onChange={event => { if (event.target.value === 'choose-directory') void workspace.choose(); else { workspace.setSelectedTaskId(null); workspace.setSelectedProjectId(event.target.value || null); } }}>
+          <option value="">未关联项目</option>
+          {workspace.snapshot?.projects.map(project => <option key={project.projectId} value={project.projectId}>{project.displayName}</option>)}
+          <option value="choose-directory">选择本地文件夹…</option>
+        </select></div>
         <section className="composer" aria-label="任务输入">
           <label className="sr-only" htmlFor="task-draft">任务要求</label>
           <textarea id="task-draft" ref={input} value={draft} onChange={event => setDraft(event.target.value)}
@@ -110,12 +125,13 @@ function App() {
           <div className="composer-toolbar">
             <span className="muted">请求批准</span>
             <ModelPicker visible={view === 'workbench'} openSettings={() => { setSettingsGroup('models'); setView('settings'); }} />
-            <button className="send-button" aria-label="发送" aria-describedby="send-unavailable" title="项目与执行尚未接入" disabled>
+            <button className="send-button" aria-label="发送" aria-describedby="send-unavailable" title="执行功能尚未接入" disabled>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 20V4m-7 7 7-7 7 7" /></svg>
             </button>
           </div>
         </section>
-        <p id="send-unavailable" role="note" className="muted">项目与执行功能尚未接入，暂不能发送任务。</p>
+        <p id="send-unavailable" role="note" className={selectedProject?.directoryState === 'unavailable' ? 'error-message' : 'muted'}>{selectedProject?.directoryState === 'unavailable'
+          ? `工作目录不可用：${selectedProject.directoryError}。不能在此目录开始新执行，原会话关联仍保留。` : '执行功能尚未接入，暂不能发送任务。'}</p>
       </main>
       <main className="settings" hidden={view !== 'settings'}>
         <header className="settings-header"><h1>设置</h1><button className="secondary-button" onClick={openWorkbench}>返回工作台</button></header>

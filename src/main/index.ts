@@ -1,3 +1,5 @@
+import { ProjectService } from './services/projects';
+import { PROJECT_RENAME_CHANNEL, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, WORKSPACE_READ_CHANNEL } from '../shared/contracts/projects';
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,6 +23,7 @@ app.setPath('sessionData', path.join(dataRoot, 'chromium'));
 app.setAppUserModelId('AgentX');
 
 let mainWindow: BrowserWindow | null = null;
+const projects = new ProjectService(dataRoot);
 const models = new ModelService(dataRoot);
 let modelSettingsVisible = false;
 
@@ -94,6 +97,24 @@ if (!app.requestSingleInstanceLock()) {
     Menu.setApplicationMenu(null);
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
+    ipcMain.handle(PROJECT_RENAME_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      const result = projects.rename(args[0]);
+      mainWindow!.webContents.send(WORKSPACE_CHANGED_CHANNEL);
+      return result;
+    });
+    ipcMain.handle(PROJECT_CHOOSE_CHANNEL, async (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      const result = await projects.choose(mainWindow!, args[0]);
+      if (result.status !== 'cancelled' && mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.getURL() === mainWindowURL) {
+        mainWindow.webContents.send(WORKSPACE_CHANGED_CHANNEL);
+      }
+      return result;
+    });
+    ipcMain.handle(WORKSPACE_READ_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 0);
+      return projects.read();
+    });
     ipcMain.handle(APP_INFO_CHANNEL, (event, ...args): AppInfo => {
       // IPC 只接受本产品主页面；相同 URL 的其他窗口也没有这个调用权限。
       requireProductFrame(event, args.length, 0);

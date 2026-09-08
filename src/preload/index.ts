@@ -1,8 +1,18 @@
+import { PROJECT_RENAME_CHANNEL, type ProjectRename, type ProjectRecord, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, type ProjectOperation, type ProjectChoice, WORKSPACE_READ_CHANNEL, type WorkspaceSnapshot } from '../shared/contracts/projects';
 import { contextBridge, ipcRenderer } from 'electron';
 import { APP_INFO_CHANNEL, PREFERENCES_READ_CHANNEL, PREFERENCES_SAVE_CHANNEL, type AgentXBridge, type AppInfo, type Preferences } from '../shared/contracts/app';
 import { MODEL_SETTINGS_CHANGED_CHANNEL, MODEL_TEST_CHANNEL, type ModelTestRequest, MODEL_SETTINGS_READ_CHANNEL, MODEL_KEY_SAVE_CHANNEL, MODEL_KEY_REVEAL_CHANNEL, MODEL_SETTINGS_VISIBLE_CHANNEL, MODEL_ENABLED_CHANNEL, MODEL_CATALOG_FETCH_CHANNEL, MODEL_SELECTION_CHANNEL, MODEL_ACTIVE_CHANNEL, type ModelSelectionChange, type ActiveModelChange, type ConnectionChange, type KeySubmission, type ModelOperation, type ModelSettings } from '../shared/contracts/models';
 
 const bridge: AgentXBridge = Object.freeze({
+  renameProject: (value: ProjectRename): Promise<ProjectRecord> => ipcRenderer.invoke(PROJECT_RENAME_CHANNEL, value),
+  chooseProject: (value: ProjectOperation): Promise<ProjectChoice> => ipcRenderer.invoke(PROJECT_CHOOSE_CHANNEL, value),
+  onWorkspaceChanged: (listener: () => void): (() => void) => {
+    if (typeof listener !== 'function') throw new Error('工作区监听器无效');
+    const notify = () => listener();
+    ipcRenderer.on(WORKSPACE_CHANGED_CHANNEL, notify);
+    return () => ipcRenderer.removeListener(WORKSPACE_CHANGED_CHANNEL, notify);
+  },
+  getWorkspace: (): Promise<WorkspaceSnapshot> => ipcRenderer.invoke(WORKSPACE_READ_CHANNEL),
   getAppInfo: (): Promise<AppInfo> => ipcRenderer.invoke(APP_INFO_CHANNEL),
   getPreferences: (): Promise<Preferences> => ipcRenderer.invoke(PREFERENCES_READ_CHANNEL),
   savePreferences: (value: Preferences): Promise<Preferences> => ipcRenderer.invoke(PREFERENCES_SAVE_CHANNEL, value),

@@ -79,7 +79,7 @@ test('revealed：只有显式点击临时解密，关闭、离页和窗口失焦
   // Playwright 默认模拟页面始终有焦点；此处关闭模拟，再验证真实 OS 失焦。
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: false });
-  await app.evaluate(({ BrowserWindow }) => new Promise((resolve, reject) => { const window = BrowserWindow.getAllWindows()[0]; const timer = setTimeout(() => reject(new Error('未收到原生窗口失焦')), 5000); const done = () => { clearTimeout(timer); resolve(); }; window.once('blur', done); window.minimize(); if (!window.isFocused()) { window.removeListener('blur', done); done(); } }));
+  await app.evaluate(({ BrowserWindow }) => new Promise((resolve, reject) => { const window = BrowserWindow.getAllWindows()[0]; const timer = setTimeout(() => reject(new Error('未收到原生窗口失焦')), 5000); const done = () => { clearTimeout(timer); resolve(); }; window.once('blur', done); window.hide(); if (!window.isFocused()) { window.removeListener('blur', done); done(); } }));
   await page.waitForFunction(() => !document.hasFocus());
   assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused()), false);
   await page.waitForFunction(() => document.querySelector('#model-api-key')?.value === '');
@@ -418,7 +418,7 @@ test('testFailed：结果落盘失败后重开，相同测试操作不能重复�
     globalThis.lockedDatabase.exec('BEGIN EXCLUSIVE');
     globalThis.finishPersistTest();
   });
-  assert.match(await current.page.evaluate(() => window.fixtureTest), /模型元数据/);
+  assert.match(await current.page.evaluate(() => window.fixtureTest), /产品元数据/);
   await current.app.evaluate(() => { globalThis.lockedDatabase.exec('ROLLBACK'); globalThis.lockedDatabase.close(); });
   const data = current.data; await current.app.close(); current = await launch(data);
   await current.app.evaluate(() => { globalThis.fixturePosts = 0; globalThis.fetch = async () => { globalThis.fixturePosts++; return new Response('{}', { status: 503 }); }; });
@@ -493,7 +493,7 @@ test('保存与读取失败：不支持的数据库版本不清空重建，也�
   await assert.rejects(page.evaluate(() => window.agentx.getModelSettings()), /不会清空重建/);
   await page.getByRole('button', { name: '设置', exact: true }).click();
   await page.getByRole('button', { name: '模型连接', exact: true }).click();
-  await page.getByRole('alert').filter({ hasText: '模型元数据' }).waitFor();
+  await page.getByRole('alert').filter({ hasText: '产品元数据' }).waitFor();
   assert.equal(await app.evaluate(({ app }) => { const { DatabaseSync } = process.getBuiltinModule('node:sqlite'); const db = new DatabaseSync(process.getBuiltinModule('node:path').join(app.getPath('userData'), 'agentx.db')); const version = db.prepare('PRAGMA user_version').get().user_version; db.close(); return version; }), 999);
 });
 

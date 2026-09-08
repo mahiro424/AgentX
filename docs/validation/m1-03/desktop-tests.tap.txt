@@ -1,0 +1,410 @@
+
+> agentx-desktop@0.1.0 test
+> node --test --test-concurrency=1 tests/desktop/foundation.test.cjs tests/desktop/models.test.cjs tests/desktop/projects.test.cjs
+
+TAP version 13
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: default / empty：真实桌面显示空工作台，不制造会话或模型连接
+ok 1 - default / empty：真实桌面显示空工作台，不制造会话或模型连接
+  ---
+  duration_ms: 1111.2888
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: empty：说明没有记录，新会话准备入口聚焦且保留草稿
+ok 2 - empty：说明没有记录，新会话准备入口聚焦且保留草稿
+  ---
+  duration_ms: 1500.4145
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: loading：主进程未返回信息时显示加载，返回后消失
+ok 3 - loading：主进程未返回信息时显示加载，返回后消失
+  ---
+  duration_ms: 1158.2026
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: error：读取失败可重试，草稿不因错误或重试丢失
+ok 4 - error：读取失败可重试，草稿不因错误或重试丢失
+  ---
+  duration_ms: 1094.2024
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: disabled：有草稿仍不能发送，显示原因且不暴露未接入入口
+ok 5 - disabled：有草稿仍不能发送，显示原因且不暴露未接入入口
+  ---
+  duration_ms: 1086.5365
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: compact：真实窗口缩小时收起侧栏，可恢复并用键盘调宽
+ok 6 - compact：真实窗口缩小时收起侧栏，可恢复并用键盘调宽
+  ---
+  duration_ms: 1167.9858
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: theme：主题和真实缩放生效，重开后仍保持；切页保留草稿
+ok 7 - theme：主题和真实缩放生效，重开后仍保持；切页保留草稿
+  ---
+  duration_ms: 1851.6108
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: keyboard：缩窄窗口不把侧栏中的键盘焦点丢给页面正文
+ok 8 - keyboard：缩窄窗口不把侧栏中的键盘焦点丢给页面正文
+  ---
+  duration_ms: 1174.8943
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: theme error：保存失败显示实际原因，不覆盖损坏配置或草稿
+ok 9 - theme error：保存失败显示实际原因，不覆盖损坏配置或草稿
+  ---
+  duration_ms: 1105.3518
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: data capability：打包 Main 的 SQLite 事务与系统加密可跨进程重开
+ok 10 - data capability：打包 Main 的 SQLite 事务与系统加密可跨进程重开
+  ---
+  duration_ms: 2370.8162
+  type: 'test'
+  ...
+# 真实打包环境：Electron 44.2.0，Node 24.20.0；合成数据事务与跨进程解密通过
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: IPC：仅暴露产品桥，拒绝非法偏好且不更改原配置
+ok 11 - IPC：仅暴露产品桥，拒绝非法偏好且不更改原配置
+  ---
+  duration_ms: 1105.6893
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: IPC 来源：相同地址的其他窗口也不能写入产品偏好
+ok 12 - IPC 来源：相同地址的其他窗口也不能写入产品偏好
+  ---
+  duration_ms: 1300.0084
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: unconfigured：模型设置解释 Key 配置，返回保留草稿且不要求登录
+ok 13 - unconfigured：模型设置解释 Key 配置，返回保留草稿且不要求登录
+  ---
+  duration_ms: 1237.6995
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: editing / saved / masked：完整值 Enter 保存系统密文，空编辑不覆盖，重开保留配置
+ok 14 - editing / saved / masked：完整值 Enter 保存系统密文，空编辑不覆盖，重开保留配置
+  ---
+  duration_ms: 2335.5214
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: revealed：只有显式点击临时解密，关闭、离页和窗口失焦清除明文
+ok 15 - revealed：只有显式点击临时解密，关闭、离页和窗口失焦清除明文
+  ---
+  duration_ms: 1667.0347
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: disabledConnection：连接关闭保留密钥，重新启用不要求重新填写
+ok 16 - disabledConnection：连接关闭保留密钥，重新启用不要求重新填写
+  ---
+  duration_ms: 1408.6472
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: fetching / catalogLoaded：点击拉取才请求固定地址，显示真实候选且不自动勾选
+ok 17 - fetching / catalogLoaded：点击拉取才请求固定地址，显示真实候选且不自动勾选
+  ---
+  duration_ms: 1594.8999
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: noSelection / unsupported：只把启用连接下勾选的候选带到工作台，其他模型明确禁用
+ok 18 - noSelection / unsupported：只把启用连接下勾选的候选带到工作台，其他模型明确禁用
+  ---
+  duration_ms: 1877.4787
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: catalogEmpty / selectedMissing：远端空列表明确显示，原勾选保留失效标记且不能选择执行
+ok 19 - catalogEmpty / selectedMissing：远端空列表明确显示，原勾选保留失效标记且不能选择执行
+  ---
+  duration_ms: 1702.6291
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: saving / saveFailed：系统加密失败保留输入和旧凭据，后续请求不能偷用旧 Key
+ok 20 - saving / saveFailed：系统加密失败保留输入和旧凭据，后续请求不能偷用旧 Key
+  ---
+  duration_ms: 1793.5899
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: testing / testPassed：只有手动点 Flash 行才发最小推理请求，结果持久化且不修改勾选
+ok 21 - testing / testPassed：只有手动点 Flash 行才发最小推理请求，结果持久化且不修改勾选
+  ---
+  duration_ms: 3131.0987
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: testFailed：只呈现脱敏失败，保留勾选，重复操作和其他模型都不再调用
+ok 22 - testFailed：只呈现脱敏失败，保留勾选，重复操作和其他模型都不再调用
+  ---
+  duration_ms: 1532.5985
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: fetching：离开再进入设置仍能收到最终列表，不重发请求或卡在加载
+ok 23 - fetching：离开再进入设置仍能收到最终列表，不重发请求或卡在加载
+  ---
+  duration_ms: 1686.0522
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: testExpired：旧测试回包只属于旧密钥，不能把更换后的配置标绿
+ok 24 - testExpired：旧测试回包只属于旧密钥，不能把更换后的配置标绿
+  ---
+  duration_ms: 1907.2712
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: fetchFailed：认证失败、超时和坏响应都保留最后成功目录及勾选，不自动重试
+ok 25 - fetchFailed：认证失败、超时和坏响应都保留最后成功目录及勾选，不自动重试
+  ---
+  duration_ms: 1539.1843
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: catalogLoaded：拉取期间配置变化时丢弃旧回包，并清楚提示重新拉取
+ok 26 - catalogLoaded：拉取期间配置变化时丢弃旧回包，并清楚提示重新拉取
+  ---
+  duration_ms: 1422.4755
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: saved：晚到的旧读取不能覆盖已保存的当前设置
+ok 27 - saved：晚到的旧读取不能覆盖已保存的当前设置
+  ---
+  duration_ms: 1636.0151
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: testFailed：结果落盘失败后重开，相同测试操作不能重复产生调用
+ok 28 - testFailed：结果落盘失败后重开，相同测试操作不能重复产生调用
+  ---
+  duration_ms: 3027.2824
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: saveFailed：配置替换失败保留旧引用，重开也不把旧 Key 当作新配置使用
+ok 29 - saveFailed：配置替换失败保留旧引用，重开也不把旧 Key 当作新配置使用
+  ---
+  duration_ms: 2156.7426
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: editing：同一次离开 Key 输入并点击拉取，先完成新 Key 保存且只发一次新配置请求
+ok 30 - editing：同一次离开 Key 输入并点击拉取，先完成新 Key 保存且只发一次新配置请求
+  ---
+  duration_ms: 2578.7481
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: 输入与凭据边界：拒绝掩码、越权显隐和旧修订，损坏密文不外发且不覆盖
+ok 31 - 输入与凭据边界：拒绝掩码、越权显隐和旧修订，损坏密文不外发且不覆盖
+  ---
+  duration_ms: 1654.7121
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: 保存与读取失败：不支持的数据库版本不清空重建，也不以空模型伪装成功
+ok 32 - 保存与读取失败：不支持的数据库版本不清空重建，也不以空模型伪装成功
+  ---
+  duration_ms: 1517.1874
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: fetchFailed：过大的响应在读取上限处取消，不持续吞入整个响应体
+ok 33 - fetchFailed：过大的响应在读取上限处取消，不持续吞入整个响应体
+  ---
+  duration_ms: 1464.0304
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: design QA：采用图对应的模型页在真实窗口浅深色与紧凑尺寸可达
+ok 34 - design QA：采用图对应的模型页在真实窗口浅深色与紧凑尺寸可达
+  ---
+  duration_ms: 2124.1186
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: selected：只改工作台候选不使同一凭据的进行中目录请求作废
+ok 35 - selected：只改工作台候选不使同一凭据的进行中目录请求作废
+  ---
+  duration_ms: 1535.5731
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: revealed：编辑中的 Key 单击眼睛即可显隐，离开整个密钥控件才提交
+ok 36 - revealed：编辑中的 Key 单击眼睛即可显隐，离开整个密钥控件才提交
+  ---
+  duration_ms: 1515.0349
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: M1-03 empty：从公开接口读取空项目和会话，不创建假记录
+ok 37 - M1-03 empty：从公开接口读取空项目和会话，不创建假记录
+  ---
+  duration_ms: 1025.1234
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: M1-03 selecting：原生单目录选择可取消，不写入记录或清空草稿
+ok 38 - M1-03 selecting：原生单目录选择可取消，不写入记录或清空草稿
+  ---
+  duration_ms: 1429.4782
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: M1-03 associated：中文空格目录真实关联并重开，不复制或改动原件
+ok 39 - M1-03 associated：中文空格目录真实关联并重开，不复制或改动原件
+  ---
+  duration_ms: 2345.5427
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: M1-03 duplicate：同目录、大小写别名和 junction 定位已有项目，不合并其他目标
+ok 40 - M1-03 duplicate：同目录、大小写别名和 junction 定位已有项目，不合并其他目标
+  ---
+  duration_ms: 1791.8478
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: M1-03 editing：铅笔和菜单打开同一编辑浮层，Enter 保存、Escape 取消且不改磁盘名称
+ok 41 - M1-03 editing：铅笔和菜单打开同一编辑浮层，Enter 保存、Escape 取消且不改磁盘名称
+  ---
+  duration_ms: 1549.6846
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: M1-03 saveFailed：真实数据库写锁失败保留输入和原记录，解除后手动保存
+ok 42 - M1-03 saveFailed：真实数据库写锁失败保留输入和原记录，解除后手动保存
+  ---
+  duration_ms: 1657.2312
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: M1-03 missingDirectory：目录移走后显示不可用，保留关联与草稿并阻断新执行
+ok 43 - M1-03 missingDirectory：目录移走后显示不可用，保留关联与草稿并阻断新执行
+  ---
+  duration_ms: 1389.706
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: M1-03 loading：列表读取中保留已显示内容，晚到旧快照不覆盖新读取
+ok 44 - M1-03 loading：列表读取中保留已显示内容，晚到旧快照不覆盖新读取
+  ---
+  duration_ms: 1351.0554
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: M1-03 error：数据库文件权限检查失败不能变成空历史，可重试且保留内容
+ok 45 - M1-03 error：数据库文件权限检查失败不能变成空历史，可重试且保留内容
+  ---
+  duration_ms: 1435.5566
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: M1-03 active：公开快照的运行与等待标记不同，更新观测不重排；非真实引擎验收
+ok 46 - M1-03 active：公开快照的运行与等待标记不同，更新观测不重排；非真实引擎验收
+  ---
+  duration_ms: 1742.2801
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# (node:34132) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: M1-03 inactive：持久化会话读取真实活动时间，打开不刷新；重开不伪称旧任务还在运行
+ok 47 - M1-03 inactive：持久化会话读取真实活动时间，打开不刷新；重开不伪称旧任务还在运行
+  ---
+  duration_ms: 2769.3327
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: 迁移失败：旧版模型数据先留一致性快照，失败整体回滚、不留下半次项目迁移
+ok 48 - 迁移失败：旧版模型数据先留一致性快照，失败整体回滚、不留下半次项目迁移
+  ---
+  duration_ms: 2087.082
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: 损坏记录：项目字段与会话目录关联损坏时报错，不隐藏或错误归组
+ok 49 - 损坏记录：项目字段与会话目录关联损坏时报错，不隐藏或错误归组
+  ---
+  duration_ms: 1345.7588
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: compact / keyboard：紧凑新会话离开旧记录，菜单 resize 关闭后焦点仍可定位
+ok 50 - compact / keyboard：紧凑新会话离开旧记录，菜单 resize 关闭后焦点仍可定位
+  ---
+  duration_ms: 1695.0813
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: 关联失败反馈：目录读取失败不被晚到的正常列表读取抹掉
+ok 51 - 关联失败反馈：目录读取失败不被晚到的正常列表读取抹掉
+  ---
+  duration_ms: 998.0777
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: 编辑错误路径：损坏项目拒绝修改，报错后原名称和修订号保持不变
+ok 52 - 编辑错误路径：损坏项目拒绝修改，报错后原名称和修订号保持不变
+  ---
+  duration_ms: 1494.4215
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: 项目 IPC 边界：拒绝任意目录参数、非法名称、过期编辑和同地址外来窗口
+ok 53 - 项目 IPC 边界：拒绝任意目录参数、非法名称、过期编辑和同地址外来窗口
+  ---
+  duration_ms: 1482.144
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: 迁移成功：M1-02 模型记录与保存保护标记保留，备份能读出迁移前数据
+ok 54 - 迁移成功：M1-02 模型记录与保存保护标记保留，备份能读出迁移前数据
+  ---
+  duration_ms: 1721.313
+  type: 'test'
+  ...
+# 桌面测试尺寸：{"before":[1280,820],"after":[1280,820]}
+# Subtest: 侧栏设计 QA：菜单在行外展开，不遮住铅笔；目录失效标记不压住长名称
+ok 55 - 侧栏设计 QA：菜单在行外展开，不遮住铅笔；目录失效标记不压住长名称
+  ---
+  duration_ms: 1399.0777
+  type: 'test'
+  ...
+1..55
+# tests 55
+# suites 0
+# pass 55
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 91621.8375
