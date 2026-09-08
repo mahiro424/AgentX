@@ -2,6 +2,8 @@ import type { TaskSummary } from '../../shared/contracts/projects';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { readWorkspace } from '../storage/projects';
+import { captureWorkspace, captureGitState } from './workspace-results';
+import { saveWorkspaceBaseline } from '../storage/results';
 import { beginTaskSubmission, markSubmissionDispatched, markSubmissionUncertain, bindSubmissionThread, acknowledgeSubmission, settleTaskTurn, beginTaskStop, updateApprovalWait, readSubmissionIntent } from '../storage/tasks';
 import { parseApprovalRequest, answerApproval, type ApprovalRequest } from '../runtime/codex/approvals';
 import { startThread, startTurn, interruptTurn, steerTurn, terminateBackgroundTerminals } from '../runtime/codex/execution';
@@ -174,6 +176,10 @@ export class ExecutionService {
           this.changed();
         },
       });
+      if (this.closing) throw new Error('应用正在退出，未发送任务');
+      const baseline = await captureWorkspace(project.directory);
+      const git = await captureGitState(project.directory);
+      await saveWorkspaceBaseline(this.root, { taskId: task.taskId, operationId: intent.operationId }, baseline, git);
       if (this.closing) throw new Error('应用正在退出，未发送任务');
       await session.submit(this.runtime.transport);
       const saved = readWorkspace(this.root).tasks.find(value => value.taskId === task.taskId);
