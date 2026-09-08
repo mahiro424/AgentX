@@ -13,7 +13,7 @@ import { ExecutionService } from './services/execution';
 import { TASK_HISTORY_READ_CHANNEL } from '../shared/contracts/history';
 import { TASK_RESULTS_READ_CHANNEL } from '../shared/contracts/results';
 import { readTaskResults } from './services/task-results';
-import { EXECUTION_READ_CHANNEL, EXECUTION_START_CHANNEL, EXECUTION_STOP_CHANNEL, EXECUTION_CHANGED_CHANNEL } from '../shared/contracts/execution';
+import { EXECUTION_READ_CHANNEL, EXECUTION_START_CHANNEL, EXECUTION_CONTINUE_CHANNEL, EXECUTION_STOP_CHANNEL, EXECUTION_CHANGED_CHANNEL } from '../shared/contracts/execution';
 import { EXECUTION_STEER_CHANNEL, EXECUTION_APPROVAL_CHANNEL } from '../shared/contracts/execution';
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
@@ -132,6 +132,10 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(EXECUTION_START_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 1);
       return execution.start(args[0]);
+    });
+    ipcMain.handle(EXECUTION_CONTINUE_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return execution.continue(args[0]);
     });
     ipcMain.handle(EXECUTION_STOP_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 1);

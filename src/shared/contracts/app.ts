@@ -1,5 +1,5 @@
 import type { ProjectChoice, ProjectOperation, ProjectRename, ProjectRecord, WorkspaceSnapshot } from './projects';
-import type { ExecutionStart, ExecutionControl, ExecutionSnapshot, ExecutionSteer, ExecutionApproval } from './execution';
+import type { ExecutionStart, ExecutionContinue, ExecutionControl, ExecutionSnapshot, ExecutionSteer, ExecutionApproval } from './execution';
 import type { TaskSummary } from './projects';
 import type { TaskHistory, TaskHistoryRequest } from './history';
 import type { TaskResults, TaskResultsRequest } from './results';
@@ -31,6 +31,7 @@ export interface AgentXBridge {
   saveDraft(value: DraftSave): Promise<DraftRecord>;
   getExecution(): Promise<ExecutionSnapshot>;
   startExecution(value: ExecutionStart): Promise<TaskSummary>;
+  continueExecution(value: ExecutionContinue): Promise<TaskSummary>;
   stopExecution(value: ExecutionControl): Promise<void>;
   steerExecution(value: ExecutionSteer): Promise<void>;
   answerExecutionApproval(value: ExecutionApproval): Promise<void>;

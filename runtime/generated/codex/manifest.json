@@ -146,6 +146,10 @@
     {
       "path": "v2/ThreadReadParams.ts",
       "sha256": "c24743cb5655b4c71a853a2a290412d78e1a27e0278f2a0cde9bd9d9b78118a8"
+    },
+    {
+      "path": "v2/ThreadResumeParams.ts",
+      "sha256": "02f6d2d99d1cfb42ca2ef4647d731fee0b3801c25a61451b41f041b97adff649"
     }
   ]
 }

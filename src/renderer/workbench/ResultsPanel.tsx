@@ -41,6 +41,7 @@ export function ResultsPanel({ taskId, turnId, onClose }: { taskId: string; turn
       {loading && <p role="status" className="muted">正在检查实际文件变化…</p>}
       {error && <p role="alert" className="error-message">{error}。未确认本次检查；可以重新检查，草稿保留。</p>}
       {value && <>
+        {value.executionState !== 'completed' && <p role="note">本轮{value.executionState === 'interrupted' ? '已中断' : '失败'}，仅显示已知变化，不代表目标完成或已撤销修改。</p>}
         {(loading || error) && <p role="note">以下保留上次成功检查，当前文件状态尚未确认。</p>}
         <p className="muted">比较基线：本轮开始 {new Date(value.baselineAt).toLocaleString()} → 当前检查 {new Date(value.observedAt).toLocaleString()}</p>
         <p className="muted">轮次：{value.turnId}<br />目录：{value.directory}</p>

@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { launch } = require('./helpers.cjs');
 
-async function seed(app) {
-  return app.evaluate(async ({ app, BrowserWindow, ipcMain }, repository) => {
+async function seed(app, state = 'completed') {
+  return app.evaluate(async ({ app, BrowserWindow, ipcMain }, { repository, state }) => {
     const req = process.getBuiltinModule('node:module').createRequire(repository + '/package.json');
     req('ts-node').register({ transpileOnly: true, project: repository + '/tsconfig.json' });
     const fs = process.getBuiltinModule('node:fs/promises'), path = process.getBuiltinModule('node:path');
@@ -20,12 +20,12 @@ async function seed(app) {
     tasks.beginTaskSubmission(root, { taskId, projectId: project.projectId, directory, title: '检查文件结果', executionState: 'submitting',
       threadId: null, turnId: null, lastActivityAt: now, observedAt: now }, { operationId, modelId: 'deepseek-v4-flash', configRevision: 1, credentialRef: process.getBuiltinModule('node:crypto').randomUUID(), text: '合成结果要求' });
     tasks.markSubmissionDispatched(root, taskId, operationId); tasks.bindSubmissionThread(root, taskId, operationId, threadId);
-    tasks.acknowledgeSubmission(root, taskId, operationId, threadId, turnId); tasks.settleTaskTurn(root, taskId, operationId, threadId, turnId, 'completed');
+    tasks.acknowledgeSubmission(root, taskId, operationId, threadId, turnId); tasks.settleTaskTurn(root, taskId, operationId, threadId, turnId, state);
     ipcMain.removeHandler('agentx:task-history-read');
-    ipcMain.handle('agentx:task-history-read', () => ({ taskId, threadId, turns: [{ turnId, status: 'completed', items: [], unrepresentedItemTypes: [] }] }));
+    ipcMain.handle('agentx:task-history-read', () => ({ taskId, threadId, turns: [{ turnId, status: state, items: [], unrepresentedItemTypes: [] }] }));
     BrowserWindow.getAllWindows()[0].webContents.send('agentx:workspace-changed');
     return { taskId, turnId, directory, operationId };
-  }, path.resolve('.'));
+  }, { repository: path.resolve('.'), state });
 }
 
 test('noChanges：用户打开改动后，经真实 Main 检查基线；关闭面板不丢草稿', { timeout: 45000 }, async t => {
@@ -143,4 +143,19 @@ test('结果 IPC 与二进制：拒绝任意路径/RPC；二进制不伪造文�
   await page.getByRole('button', { name: '删除 source.txt', exact: true }).click();
   assert.match(await page.getByRole('region', { name: '只读文本差异' }).innerText(), /-2/);
   assert.equal((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0].executionState, 'completed');
+});
+
+for (const state of ['failed', 'interrupted']) test('partialResult：' + state + ' 仍能检查已知变化，不改变终态或人工文件', { timeout: 45000 }, async t => {
+  const { app, page } = await launch(); t.after(() => app.close());
+  const binding = await seed(app, state), fs = require('node:fs/promises');
+  await fs.writeFile(path.join(binding.directory, 'source.txt'), '本轮只完成这部分修改\n');
+  await page.getByRole('button', { name: '检查文件结果', exact: true }).click();
+  await page.getByRole('button', { name: '查看文件改动', exact: true }).click();
+  const panel = page.getByRole('region', { name: '文件改动' });
+  await panel.getByRole('button', { name: '修改 source.txt', exact: true }).click();
+  assert.match(await panel.innerText(), /仅显示已知变化，不代表目标完成或已撤销修改/);
+  assert.match(await panel.getByRole('region', { name: '只读文本差异' }).innerText(), /本轮只完成这部分修改/);
+  await page.getByRole('button', { name: '关闭改动面板' }).click();
+  assert.equal((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0].executionState, state);
+  assert.equal(await fs.readFile(path.join(binding.directory, 'manual.txt'), 'utf8'), '本轮开始前人工留下的内容');
 });

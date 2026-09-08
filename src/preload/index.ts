@@ -3,7 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { TASK_RESULTS_READ_CHANNEL, type TaskResults, type TaskResultsRequest } from '../shared/contracts/results';
 import { TASK_HISTORY_READ_CHANNEL, type TaskHistory, type TaskHistoryRequest } from '../shared/contracts/history';
 import { DRAFT_READ_CHANNEL, DRAFT_SAVE_CHANNEL, type DraftScope, type DraftRecord, type DraftSave } from '../shared/contracts/drafts';
-import { EXECUTION_READ_CHANNEL, EXECUTION_START_CHANNEL, EXECUTION_STOP_CHANNEL, EXECUTION_CHANGED_CHANNEL, type ExecutionStart, type ExecutionControl, type ExecutionSnapshot } from '../shared/contracts/execution';
+import { EXECUTION_READ_CHANNEL, EXECUTION_START_CHANNEL, EXECUTION_CONTINUE_CHANNEL, EXECUTION_STOP_CHANNEL, EXECUTION_CHANGED_CHANNEL, type ExecutionStart, type ExecutionContinue, type ExecutionControl, type ExecutionSnapshot } from '../shared/contracts/execution';
 import type { TaskSummary } from '../shared/contracts/projects';
 import { EXECUTION_STEER_CHANNEL, EXECUTION_APPROVAL_CHANNEL, type ExecutionSteer, type ExecutionApproval } from '../shared/contracts/execution';
 import { APP_INFO_CHANNEL, OUTPUT_COPY_CHANNEL, PREFERENCES_READ_CHANNEL, PREFERENCES_SAVE_CHANNEL, type AgentXBridge, type AppInfo, type Preferences } from '../shared/contracts/app';
@@ -17,6 +17,7 @@ const bridge: AgentXBridge = Object.freeze({
   saveDraft: (value: DraftSave): Promise<DraftRecord> => ipcRenderer.invoke(DRAFT_SAVE_CHANNEL, value),
   getExecution: (): Promise<ExecutionSnapshot> => ipcRenderer.invoke(EXECUTION_READ_CHANNEL),
   startExecution: (value: ExecutionStart): Promise<TaskSummary> => ipcRenderer.invoke(EXECUTION_START_CHANNEL, value),
+  continueExecution: (value: ExecutionContinue): Promise<TaskSummary> => ipcRenderer.invoke(EXECUTION_CONTINUE_CHANNEL, value),
   stopExecution: (value: ExecutionControl): Promise<void> => ipcRenderer.invoke(EXECUTION_STOP_CHANNEL, value),
   steerExecution: (value: ExecutionSteer): Promise<void> => ipcRenderer.invoke(EXECUTION_STEER_CHANNEL, value),
   answerExecutionApproval: (value: ExecutionApproval): Promise<void> => ipcRenderer.invoke(EXECUTION_APPROVAL_CHANNEL, value),

@@ -128,6 +128,24 @@ export function readTaskRecords(database: DatabaseSync): TaskSummary[] {
   }));
 }
 
+export function beginTaskContinuation(root: string, previous: TaskSummary, intent: SubmissionInput): void {
+  validateTask(previous); validateSubmission(intent);
+  if (!previous.threadId || !previous.turnId || !['completed', 'failed', 'interrupted'].includes(previous.executionState)) throw new Error('invalid-continuation');
+  const now = new Date(Math.max(Date.now(), Date.parse(previous.observedAt))).toISOString();
+  withDatabase(root, database => {
+    database.exec('BEGIN IMMEDIATE');
+    const task = database.prepare(`UPDATE tasks SET execution_state='submitting', turn_id=NULL, observed_at=?, last_activity_at=?
+      WHERE task_id=? AND thread_id=? AND turn_id=? AND execution_state=? AND project_id=? AND directory=?
+      AND NOT EXISTS (SELECT 1 FROM execution_intents WHERE task_id=? AND phase<>'settled')`)
+      .run(now, now, previous.taskId, previous.threadId, previous.turnId, previous.executionState, previous.projectId, previous.directory, previous.taskId);
+    if (task.changes !== 1) throw new Error('invalid-continuation-binding');
+    database.prepare(`INSERT INTO execution_intents
+      (operation_id,task_id,input_text,model_id,config_revision,credential_ref,created_at,phase) VALUES (?,?,?,?,?,?,?,'prepared')`)
+      .run(intent.operationId, previous.taskId, intent.text, intent.modelId, intent.configRevision, intent.credentialRef, now);
+    database.exec('COMMIT');
+  });
+}
+
 // 不按“最新时间”猜测轮次归属；老版本缺失绑定的记录保持未知。
 export function readTurnOperation(root: string, taskId: string, turnId: string): string | null {
   return withDatabase(root, database => {
