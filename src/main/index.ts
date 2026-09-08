@@ -2,10 +2,10 @@ import { ProjectService } from './services/projects';
 import { readDraft, saveDraft } from './storage/drafts';
 import { DRAFT_READ_CHANNEL, DRAFT_SAVE_CHANNEL } from '../shared/contracts/drafts';
 import { PROJECT_RENAME_CHANNEL, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, WORKSPACE_READ_CHANNEL } from '../shared/contracts/projects';
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { APP_INFO_CHANNEL, PREFERENCES_READ_CHANNEL, PREFERENCES_SAVE_CHANNEL, type AppInfo, type Preferences } from '../shared/contracts/app';
+import { APP_INFO_CHANNEL, OUTPUT_COPY_CHANNEL, PREFERENCES_READ_CHANNEL, PREFERENCES_SAVE_CHANNEL, type AppInfo, type Preferences } from '../shared/contracts/app';
 import { readPreferences, savePreferences } from './storage/preferences';
 import { MODEL_SETTINGS_CHANGED_CHANNEL, MODEL_TEST_CHANNEL, MODEL_SETTINGS_READ_CHANNEL, MODEL_KEY_SAVE_CHANNEL, MODEL_KEY_REVEAL_CHANNEL, MODEL_SETTINGS_VISIBLE_CHANNEL, MODEL_ENABLED_CHANNEL, MODEL_CATALOG_FETCH_CHANNEL, MODEL_SELECTION_CHANNEL, MODEL_ACTIVE_CHANNEL } from '../shared/contracts/models';
 import { ModelService } from './services/models';
@@ -111,6 +111,12 @@ if (!app.requestSingleInstanceLock()) {
     Menu.setApplicationMenu(null);
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
+    ipcMain.handle(OUTPUT_COPY_CHANNEL, async (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      const text = args[0];
+      if (typeof text !== 'string' || text.length > 2_000_000 || text.includes('\0')) throw new Error('复制内容无效：只允许不含空字符且不超过 200 万字符的纯文本');
+      await clipboard.writeText(text);
+    });
     ipcMain.handle(EXECUTION_READ_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 0);
       return execution.read();

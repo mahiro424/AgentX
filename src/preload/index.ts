@@ -6,10 +6,11 @@ import { DRAFT_READ_CHANNEL, DRAFT_SAVE_CHANNEL, type DraftScope, type DraftReco
 import { EXECUTION_READ_CHANNEL, EXECUTION_START_CHANNEL, EXECUTION_STOP_CHANNEL, EXECUTION_CHANGED_CHANNEL, type ExecutionStart, type ExecutionControl, type ExecutionSnapshot } from '../shared/contracts/execution';
 import type { TaskSummary } from '../shared/contracts/projects';
 import { EXECUTION_STEER_CHANNEL, EXECUTION_APPROVAL_CHANNEL, type ExecutionSteer, type ExecutionApproval } from '../shared/contracts/execution';
-import { APP_INFO_CHANNEL, PREFERENCES_READ_CHANNEL, PREFERENCES_SAVE_CHANNEL, type AgentXBridge, type AppInfo, type Preferences } from '../shared/contracts/app';
+import { APP_INFO_CHANNEL, OUTPUT_COPY_CHANNEL, PREFERENCES_READ_CHANNEL, PREFERENCES_SAVE_CHANNEL, type AgentXBridge, type AppInfo, type Preferences } from '../shared/contracts/app';
 import { MODEL_SETTINGS_CHANGED_CHANNEL, MODEL_TEST_CHANNEL, type ModelTestRequest, MODEL_SETTINGS_READ_CHANNEL, MODEL_KEY_SAVE_CHANNEL, MODEL_KEY_REVEAL_CHANNEL, MODEL_SETTINGS_VISIBLE_CHANNEL, MODEL_ENABLED_CHANNEL, MODEL_CATALOG_FETCH_CHANNEL, MODEL_SELECTION_CHANNEL, MODEL_ACTIVE_CHANNEL, type ModelSelectionChange, type ActiveModelChange, type ConnectionChange, type KeySubmission, type ModelOperation, type ModelSettings } from '../shared/contracts/models';
 
 const bridge: AgentXBridge = Object.freeze({
+  copyOutput: (text: string): Promise<void> => ipcRenderer.invoke(OUTPUT_COPY_CHANNEL, text),
   getTaskResults: (value: TaskResultsRequest): Promise<TaskResults> => ipcRenderer.invoke(TASK_RESULTS_READ_CHANNEL, value),
   getTaskHistory: (value: TaskHistoryRequest): Promise<TaskHistory> => ipcRenderer.invoke(TASK_HISTORY_READ_CHANNEL, value),
   getDraft: (value: DraftScope): Promise<DraftRecord> => ipcRenderer.invoke(DRAFT_READ_CHANNEL, value),

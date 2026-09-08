@@ -11,6 +11,8 @@ import { useExecution } from './workbench/useExecution';
 import { useHistory } from './workbench/useHistory';
 import { HistoryTimeline } from './workbench/HistoryTimeline';
 import { ResultsPanel } from './workbench/ResultsPanel';
+import { OutputPanel } from './workbench/OutputPanel';
+import type { CommandItem } from '../shared/contracts/execution';
 import { useDraft } from './workbench/useDraft';
 import { ExecutionTimeline } from './workbench/ExecutionTimeline';
 import { taskStateLabel } from './shell/TaskStatus';
@@ -63,6 +65,16 @@ function App() {
   const canInspect = !!selectedTask?.turnId && ['completed', 'failed', 'interrupted'].includes(selectedTask.executionState);
   const resultsOpen = canInspect && resultsTask === selectedTask?.taskId;
   const history = useHistory(selectedTask && ['completed', 'failed', 'interrupted'].includes(selectedTask.executionState) ? selectedTask.taskId : null);
+  const [outputSelection, setOutputSelection] = useState<{ taskId: string; threadId: string; turnId: string; itemId: string } | null>(null);
+  const outputTrigger = useRef<HTMLButtonElement | null>(null);
+  const outputItem = outputSelection?.taskId === workspace.selectedTaskId
+    ? (history.value?.turns.flatMap(turn => turn.items) ?? currentExecution?.items ?? []).find((item): item is CommandItem => item.kind === 'command' &&
+      item.threadId === outputSelection.threadId && item.turnId === outputSelection.turnId && item.itemId === outputSelection.itemId) : undefined;
+  function openOutput(item: CommandItem, trigger: HTMLButtonElement) {
+    if (!workspace.selectedTaskId) return;
+    outputTrigger.current = trigger; setResultsTask(null);
+    setOutputSelection({ taskId: workspace.selectedTaskId, threadId: item.threadId, turnId: item.turnId, itemId: item.itemId });
+  }
   const draftState = useDraft({ projectId: workspace.selectedProjectId, taskId: workspace.selectedTaskId });
   const draft = draftState.text, setDraft = draftState.setText;
   const [modelConfiguration, setModelConfiguration] = useState<ModelConfiguration | null>(null);
@@ -237,18 +249,18 @@ function App() {
     </aside>}
     <div className="workspace">
       <header className="window-bar drag-region">{!sidebarOpen && <><button ref={sidebarToggle} className="icon-button" aria-label="展开侧栏" onClick={toggleSidebar}><PanelIcon /></button><button className="icon-button" aria-label="新会话" onClick={newSession}>＋</button><button className="icon-button" aria-label="设置" onClick={() => setView('settings')}><SettingsIcon /></button></>}</header>
-      <div className={`workbench-layout${resultsOpen ? ' has-results' : ''}`} hidden={view !== 'workbench'}>
+      <div className={`workbench-layout${resultsOpen || outputItem ? ' has-results' : ''}`} hidden={view !== 'workbench'}>
       <main className={`welcome${selectedTask || currentExecution?.task ? ' execution-workbench' : ''}`}>
         <div className="welcome-heading">
           <h1 title={selectedTask?.title}>{selectedTask?.title ?? '今天想完成什么工作？'}</h1>
           <p>{currentState ? currentState === 'stopping' ? '正在停止，等待引擎确认…' : taskStateLabel[currentState] : selectedTask ? taskStateLabel[selectedTask.executionState] : '用自然语言描述目标，在这里开始工作。'}</p>
-          {canInspect && <button ref={resultsTrigger} className="secondary-button inspect-results" aria-label="查看文件改动" aria-expanded={resultsOpen} onClick={() => setResultsTask(selectedTask!.taskId)}>查看文件改动</button>}
+          {canInspect && <button ref={resultsTrigger} className="secondary-button inspect-results" aria-label="查看文件改动" aria-expanded={resultsOpen} onClick={() => { setOutputSelection(null); setResultsTask(selectedTask!.taskId); }}>查看文件改动</button>}
         </div>
         {history.loading && <p role="status" className="muted">正在读取会话历史…</p>}
         {history.error && <p role="alert" className="error-message">历史读取失败：{history.error} <button className="secondary-button" onClick={() => void history.load()}>重新读取历史</button></p>}
-        {history.value && <HistoryTimeline history={history.value} />}
+        {history.value && <HistoryTimeline history={history.value} onOpenOutput={openOutput} />}
         {currentExecution && !history.value && <ExecutionTimeline items={currentExecution.items} approvals={currentExecution.approvals} pending={pendingApprovals}
-          inputText={currentExecution.inputText}
+          inputText={currentExecution.inputText} onOpenOutput={openOutput}
           plan={currentExecution.plan} active={!!currentState && ['running', 'waitingApproval', 'waitingInput', 'stopping'].includes(currentState) && !execution.error}
           canAnswer={currentState === 'waitingApproval' && !execution.error && !stopping} onAnswer={(token, decision) => void answerApproval(token, decision)} />}
         {execution.error && <p role="alert" className="error-message">{execution.error} <button className="secondary-button" onClick={() => void execution.load()}>重读执行状态</button></p>}
@@ -306,6 +318,9 @@ function App() {
       </main>
       {resultsOpen && selectedTask?.turnId && <ResultsPanel key={`${selectedTask.taskId}:${selectedTask.turnId}`} taskId={selectedTask.taskId} turnId={selectedTask.turnId}
         onClose={() => { setResultsTask(null); resultsTrigger.current?.focus(); }} />}
+      {outputItem && <OutputPanel key={`${outputSelection!.taskId}:${outputItem.threadId}:${outputItem.turnId}:${outputItem.itemId}`} item={outputItem}
+        active={!history.value && !execution.error && showStop}
+        onClose={() => { setOutputSelection(null); if (outputTrigger.current?.isConnected) outputTrigger.current.focus(); else input.current?.focus(); }} />}
       </div>
       <main className="settings" hidden={view !== 'settings'}>
         <header className="settings-header"><h1>设置</h1><button className="secondary-button" onClick={openWorkbench}>返回工作台</button></header>

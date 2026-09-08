@@ -1,10 +1,11 @@
-import type { ApprovalItem, ExecutionPlan } from '../../shared/contracts/execution';
+import type { ApprovalItem, CommandItem, ExecutionPlan } from '../../shared/contracts/execution';
 import type { HistoryItem } from '../../shared/contracts/history';
 import { ApprovalCard } from './ApprovalCard';
 
 const labels = { running: '进行中', completed: '已结束', failed: '失败', declined: '已拒绝' };
 
-export function ExecutionTimeline({ items, approvals, pending, canAnswer, onAnswer, plan, active, inputText }: { items: HistoryItem[]; approvals: ApprovalItem[]; plan?: ExecutionPlan; active: boolean; inputText?: string;
+export function ExecutionTimeline({ items, approvals, pending, canAnswer, onAnswer, plan, active, inputText, onOpenOutput }: { items: HistoryItem[]; approvals: ApprovalItem[]; plan?: ExecutionPlan; active: boolean; inputText?: string;
+  onOpenOutput?: (item: CommandItem, trigger: HTMLButtonElement) => void;
   pending: Set<string>; canAnswer: boolean; onAnswer: (token: string, decision: 'accept' | 'decline') => void }) {
   const card = (approval: ApprovalItem) => <ApprovalCard key={approval.approvalToken} approval={approval}
     item={items.find(item => item.itemId === approval.itemId && item.kind !== 'userMessage') as Exclude<HistoryItem, { kind: 'userMessage' }> | undefined} disabled={!canAnswer || pending.has(approval.approvalToken)} onAnswer={onAnswer} />;
@@ -26,6 +27,7 @@ export function ExecutionTimeline({ items, approvals, pending, canAnswer, onAnsw
         <p className="muted">目录：{item.directory}</p>
         <pre>{item.output ?? '尚无命令输出'}</pre>
         <p className="muted">退出码：{item.exitCode ?? '尚未返回'} · 耗时：{item.durationMs === null ? '尚未返回' : `${item.durationMs} ms`}</p>
+        {onOpenOutput && <button className="secondary-button" onClick={event => onOpenOutput(item, event.currentTarget)}>查看执行输出</button>}
       </details> : <details className="execution-tool" key={item.itemId}>
         <summary><span>文件修改 · {item.changes.length} 项</span><span className={item.status === 'failed' ? 'error-message' : 'muted'}>{labels[item.status]}</span></summary>
         <p className="muted">以下为引擎报告，实际文件变化尚待核对。</p>

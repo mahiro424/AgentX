@@ -9,6 +9,7 @@ import type { ModelTestRequest, ActiveModelChange, ConnectionChange, KeySubmissi
 export const APP_INFO_CHANNEL = 'agentx:app-info';
 export const PREFERENCES_READ_CHANNEL = 'agentx:preferences-read';
 export const PREFERENCES_SAVE_CHANNEL = 'agentx:preferences-save';
+export const OUTPUT_COPY_CHANNEL = 'agentx:output-copy';
 
 export interface Preferences {
   theme: 'system' | 'light' | 'dark';
@@ -23,6 +24,7 @@ export interface AppInfo {
 }
 
 export interface AgentXBridge {
+  copyOutput(text: string): Promise<void>;
   getTaskResults(value: TaskResultsRequest): Promise<TaskResults>;
   getTaskHistory(value: TaskHistoryRequest): Promise<TaskHistory>;
   getDraft(value: DraftScope): Promise<DraftRecord>;

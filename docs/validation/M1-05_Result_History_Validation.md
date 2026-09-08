@@ -29,12 +29,12 @@
 ## 后续未完成
 
 - 实际文件检查已接通 `noChanges`、`changes`、`textDiff`、`unreadableResult` 的本次读取路径，详见下节；尚待完整切片验收，不能把当前文件观察当作旧轮结束快照。
-- `commandOutput` / `partialResult` 的完整结果面板验收；当前仅有历史内命令记录及未完成轮次提示。
+- `commandOutput` 面板已接通并完成下节本地验证；`partialResult` 的完整失败/中断结果验收仍未完成。
 - `nextTurn`：同 task/thread 新轮与配置修订、旧事件隔离，尚未开放。
 - 其余状态实现后的最终全量回归、设计 QA、真实续轮验收、PR / CI / 合并。
 - M1-06 仍未开始，完整 M1 不具备完成条件。
 
-## 执行前文件基线（产品侧，尚未接通差异面板）
+## 执行前文件基线（该阶段的历史记录）
 
 - 首次发送在 `thread/start` / `turn/start` 之前读取工作区原文、SHA-256 与 Git 既有改动，按 taskId / operationId 保存到产品 `results` 目录。写入及同步失败不派发任务，回收本次引擎并展示错误；不修改用户文件或 Git index。
 - 单文件 1 MiB、累计读取 32 MiB、10000 条目、64 层深度；排除 `.git` / `node_modules`。链接、读取失败、读取中变化、超限都保留覆盖问题，不能冒称完整扫描或没有变化。二进制只留指纹，不伪造文本。
@@ -76,3 +76,32 @@
 本段没有新增模型调用。截图为真实 Electron 中的合成项目，文件修改及结果 IPC 真实执行；历史应答仅在该 UI fixture 中受控，不能替代最终 Flash 现场验收。Windows 系统 DPI / 输入法的既有用户验收不被改写为本次新面板专项验收。
 
 最终本地全量 `77-results-full-tests.log` 为 **144/144**（295466.4502 ms），typecheck 与 `git diff --check` 通过。最终界面：[浅色](m1-05/results-light.png)、[深色](m1-05/results-dark.png)、[960×640](m1-05/results-compact.png)。主代理已实际查看，对照默认稿及 `09-code-diff.png` 检查按需右面板、列表/差异、主题和滚动；只呈现已接通的范围，不把完整 V1 设计里的其他入口伪装为可用。#10 仍开放，尚未满足完整切片 PR / 合并条件。
+
+## 本轮接通：执行输出侧面板
+
+- 从当前执行或已结束历史的命令详情打开右侧“执行输出”，按 task / thread / turn / item 四重关联选取实际记录。与文件改动共用右侧位置；切换任务隐藏，再返回原任务时仅恢复仍有对应记录的选择，不跨任务显示。历史加载失败不补造历史项。
+- 展示原命令、工作目录、退出码、耗时、轮次及执行项；固定协议提供合并输出，因此明确说明不单独推断 stdout/stderr。`null` 输出、空字符串、未知退出码分别表达；轮次已结束但命令最后记录仍运行时标“未核对”，不宣称进程已结束。
+- 复制通过有界 `copyOutput(text)`：只允许产品主 frame，最多 200 万字符、拒绝 NUL，仅写纯文本，不开放读取剪贴板、文件系统或通用 RPC。Main 等待系统写入完成，失败就地显示；流式内容在复制后变化时说明复制的是点击时内容。接口依据 [Electron 官方 clipboard 文档](https://github.com/electron/electron/blob/main/docs/api/clipboard.md)（Context7 检索）及本地固定 Electron 44.2.0 类型核验，不沿用旧版同步 API 的假设。
+- 自动换行开关只改显示；复制保留原始空白。关闭、放大/还原、鼠标与键盘调宽沿用面板原语；没有命令输入框，关闭不停止任务。打开进入面板焦点，Escape 关闭返回触发位置，草稿保留。
+
+### 验证证据
+
+| 项目 | 证据 |
+| --- | --- |
+| 打开输出 | `78-output-panel-red.log` 无入口 RED → `80-output-panel-green.log` GREEN |
+| 复制与失败 | `81-output-copy-red.log` 无复制动作 RED → `83-output-copy-green.log` 2/2 |
+| 自动换行 | `84-output-wrap-red.log` 无开关 RED → `86-output-wrap-green.log` 3/3 |
+| 边界与桌面回归 | `87-output-regression.log` 7/7，含缺失输出/退出码、剪贴板失败、流式更新、切页/切任务不控制执行、参数拒绝、调宽、主题和紧凑窗口 |
+| 实际引擎历史 | `89-output-real-history-recheck.log`：重新打开打包 Electron，经真实 Main 与固定 0.153.4 公开历史，显示前一批审批验收命令的实际退出码 0；其输出字段为 null，面板明确显示缺失并禁用复制。未替换该历史应答，无新增模型调用 |
+| 打包 | `85-output-wrap-package.log`，指定 `out/AgentX-win32-x64` 已更新；打包前检查占用，未结束用户应用 |
+| 设计 QA | 对照已采用 `10-failed-output.png`，主代理实际查看 [浅色](m1-05/output-light.png)、[深色](m1-05/output-dark.png)、[960×640](m1-05/output-compact.png) 及 [真实历史](m1-05/output-real-history.png) |
+
+保留的失败：`88-output-real-history.log` 的脚本错误地把真实 null 输出直接与 DOM 文本比较，断言失败；没有更改产品或引擎返回值。修正脚本按“缺失记录提示、禁用复制”核对后 `89` 通过，不伪造该命令有输出。
+
+剪贴板自动测试仅替换操作系统写入边界，真实 Preload / Main 校验保留，不读取或覆盖用户剪贴板；没有冒称人工检查系统剪贴板。UI 回归使用隔离合成项目；实际引擎记录单独核验。系统 DPI 与中文输入法沿用用户已确认的既有检查，不重复要求用户逐页确认。
+
+独立只读审查未发现该范围可复现 P1/P2。早期审查提出“切回原任务恢复旧面板选择”的疑问，已核对为预期的任务内视图保留，并补跨任务隐藏、同任务恢复及不停止测试；不存在匹配历史项时不会用旧内存项冒充。
+
+本轮仍无新增 Flash 调用，第二批真实验收保持已用 3/5 轮。`nextTurn`、完整 `partialResult`、M1-05 PR/合并及 M1-06 尚未完成；不关闭 #10。
+
+最终本地全量 `90-output-full-tests.log` 为 **151/151**（248141.7048 ms），typecheck 与 `git diff --check` 通过；`npm test` 已纳入命令输出桌面测试，产品桥白名单仅新增批准的 `copyOutput`。
