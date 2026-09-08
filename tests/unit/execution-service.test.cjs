@@ -234,6 +234,7 @@ test('搜索活动历史：只读本实例绑定轮次的公开历史，使用�
   const boundary = require('../../src/main/runtime/codex/process.ts');
   const { associateProject, readWorkspace } = require('../../src/main/storage/projects.ts');
   const { createTaskRecord } = require('../../src/main/storage/tasks.ts');
+  await fs.mkdir(path.resolve('.local-validation/m2-01'), { recursive: true });
   const root = await fs.mkdtemp(path.resolve('.local-validation/m2-01/live-search-history-'));
   const project = associateProject(root, root).project, calls = [];
   let handlers;
@@ -272,6 +273,7 @@ test('活动工具搜索：历史尚无输出时采用同一轮真实事件，�
   const { TaskSearchService } = require('../../src/main/services/task-search.ts');
   const boundary = require('../../src/main/runtime/codex/process.ts');
   const { associateProject, readWorkspace } = require('../../src/main/storage/projects.ts');
+  await fs.mkdir(path.resolve('.local-validation/m2-01'), { recursive: true });
   const root = await fs.mkdtemp(path.resolve('.local-validation/m2-01/live-search-output-'));
   const project = associateProject(root, root).project, calls = [];
   const binding = { threadId: 'live-thread', turnId: 'live-turn' };
