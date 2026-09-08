@@ -2,9 +2,9 @@ name: 文档门禁
 
 on:
   pull_request:
-    branches: [m1]
+    branches: [m1, m2]
   push:
-    branches: [m1, m1-docs, m1-design]
+    branches: [m1, m1-docs, m1-design, m2, m2-docs, m2-01, m2-02, m2-03, m2-04, m2-05]
 
 permissions:
   contents: read
@@ -23,3 +23,7 @@ jobs:
         env:
           PYTHONUTF8: '1'
         run: python scripts/check-docs.py
+      - name: 验证 M2 规格缺失会被门禁拒绝
+        env:
+          PYTHONUTF8: '1'
+        run: python tests/unit/docs-gates.test.py

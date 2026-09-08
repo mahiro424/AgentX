@@ -48,6 +48,12 @@ def main():
     locators = re.findall(r"^#{3,5} ([A-Z][A-Z0-9-]+)(?: |$)", prd, re.M)
     if len(locators) != len(set(locators)):
         errors.append("PRD: 定位词重复")
+    m2_required = {
+        "MILESTONE-M2-DAILY-WORK", "UI-M2-SHELL", "UI-M2-WORKBENCH",
+        "IMPL-M2-PUBLIC-SEAMS", "TEST-M2-VERTICAL-SLICES", "ACCEPTANCE-M2",
+    }
+    if not m2_required.issubset(locators):
+        errors.append("PRD: M2 必读定位词缺失")
     sources = []
     for line in prd.splitlines():
         cells = [s.strip() for s in line.split("|")[1:-1]]
@@ -55,7 +61,23 @@ def main():
             sources.append((cells[0], cells[1]))
     if len(sources) != 72 or len(sources) != len(set(sources)):
         errors.append("PRD: M1 的 72 条场景检查缺失或重复")
-    print(json.dumps({"文档": len(documents), "仓库内链接": links, "M1 场景": len(sources), "错误": errors}, ensure_ascii=False, indent=2))
+    m2_expected = {
+        "M2-01": "default editing pinned archived archiveBlocked search matches indexing missingSource emptyError keyboard",
+        "M2-02": "independentDraft choosing reading ready failedMaterial blockedImage sending",
+        "M2-03": "readingOffice generating validating unsupportedOffice partialOffice",
+        "M2-04": "opened document spreadsheet pdfImage unavailablePreview revision compact",
+        "M2-05": "reconciling residual resolved missingHistory unresolved nextWork",
+    }
+    m2_sources = []
+    for line in prd.splitlines():
+        cells = [s.strip() for s in line.split("|")[1:-1]]
+        if len(cells) == 3 and cells[0] in m2_expected:
+            m2_sources.append((cells[0], cells[1]))
+    expected = {(key, state) for key, states in m2_expected.items() for state in states.split()}
+    if set(m2_sources) != expected or len(m2_sources) != len(expected):
+        errors.append("PRD: M2 的 36 条场景检查缺失、变化或重复")
+    print(json.dumps({"文档": len(documents), "仓库内链接": links, "M1 场景": len(sources),
+                     "M2 场景": len(m2_sources), "错误": errors}, ensure_ascii=False, indent=2))
     if errors:
         raise SystemExit(1)
 
