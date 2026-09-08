@@ -1,8 +1,35 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { launch } = require('./helpers.cjs');
+const { launch, crashTestApp } = require('./helpers.cjs');
 const { randomUUID } = require('node:crypto');
+
+test('会话归档：悬停归档隐藏唯一行，保留草稿与执行事实，显式恢复回到置顶区', { timeout: 60000 }, async t => {
+  const { app, page } = await launch(); t.after(() => app.close());
+  const taskId = await seedTask(app);
+  await page.evaluate(request => window.agentx.setTaskPinned(request), { operationId: randomUUID(), taskId, pinned: true, expectedRevision: 0 });
+  const row = page.getByRole('button', { name: '原来的会话名称', exact: true });
+  await row.click();
+  const draft = page.getByRole('textbox', { name: '任务要求', exact: true });
+  await draft.fill('归档后仍保留的补充要求');
+  const before = (await page.evaluate(() => window.agentx.getWorkspace())).tasks[0];
+  await row.hover();
+  await page.getByRole('button', { name: '归档会话：原来的会话名称', exact: true }).click({ timeout: 5000 });
+  await row.waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: '恢复会话', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '发送', exact: true }).isDisabled(), true);
+  assert.match(await page.locator('#send-unavailable').innerText(), /归档/);
+  assert.equal(await draft.inputValue(), '归档后仍保留的补充要求');
+  const archived = (await page.evaluate(() => window.agentx.getWorkspace())).tasks[0];
+  assert.equal(typeof archived.archivedAt, 'string');
+  assert.deepEqual({ ...archived, archivedAt: before.archivedAt, organizationRevision: before.organizationRevision }, before);
+  await page.getByRole('button', { name: '恢复会话', exact: true }).click();
+  await page.getByRole('region', { name: '置顶会话', exact: true }).getByRole('button', { name: before.title, exact: true }).waitFor();
+  const restored = (await page.evaluate(() => window.agentx.getWorkspace())).tasks[0];
+  assert.equal(restored.archivedAt, null);
+  assert.deepEqual({ ...restored, organizationRevision: before.organizationRevision }, before);
+  assert.equal(await draft.inputValue(), '归档后仍保留的补充要求');
+});
 
 async function seedTask(app) {
 return app.evaluate(({ app, BrowserWindow }, repository) => {
@@ -20,6 +47,53 @@ return app.evaluate(({ app, BrowserWindow }, repository) => {
     return taskId;
   }, path.resolve('.'));
 }
+
+test('归档读取失败：区分已保存与列表未核对，收起侧栏仍可见错误，旧行不误导重复操作', { timeout: 45000 }, async t => {
+  const { app, page } = await launch(); t.after(() => app.close());
+  await seedTask(app);
+  await page.getByRole('button', { name: '原来的会话名称', exact: true }).waitFor();
+  await app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('agentx:workspace-read');
+    ipcMain.handle('agentx:workspace-read', () => { throw new Error('合成列表读取失败'); });
+  });
+  await page.getByRole('button', { name: '原来的会话名称', exact: true }).hover();
+  await page.getByRole('button', { name: '归档会话：原来的会话名称', exact: true }).click();
+  await page.getByRole('button', { name: '收起侧栏', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: '归档已保存，但列表尚未核对' }).waitFor();
+  assert.equal(await page.getByText('已归档会话，原历史和文件仍保留', { exact: true }).count(), 0);
+  await page.getByRole('button', { name: '展开侧栏', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: '原来的会话名称', exact: true }).count(), 0);
+});
+
+test('归档阻断：活动或待核对会话的悬停和菜单禁用，直接 IPC 也拒绝且原记录不变', { timeout: 60000 }, async t => {
+  const { app, page } = await launch(); t.after(() => crashTestApp(app));
+  const taskId = await seedTask(app);
+  for (const state of ['submitting', 'running', 'waitingApproval', 'waitingInput', 'stopping', 'reconciling']) {
+    await app.evaluate(({ app, BrowserWindow }, state) => {
+      const { DatabaseSync } = process.getBuiltinModule('node:sqlite');
+      const database = new DatabaseSync(app.getPath('userData') + '/agentx.db');
+      try { database.prepare('UPDATE tasks SET execution_state=?').run(state); } finally { database.close(); }
+      BrowserWindow.getAllWindows()[0].webContents.send('agentx:workspace-changed');
+    }, state);
+    const before = (await page.evaluate(() => window.agentx.getWorkspace())).tasks[0];
+    await assert.rejects(page.evaluate(value => window.agentx.setTaskArchived(value), {
+      taskId, operationId: randomUUID(), expectedRevision: before.organizationRevision, archived: true,
+    }), /活动|核对/);
+    const row = page.getByRole('button', { name: before.title, exact: true });
+    await row.hover();
+    assert.equal(await page.getByRole('button', { name: `归档会话：${before.title}`, exact: true }).isDisabled(), true);
+    await row.press('Shift+F10');
+    assert.equal(await page.getByRole('menuitem', { name: '归档会话', exact: true }).isDisabled(), true);
+    assert.match(await page.getByRole('menuitem', { name: '归档会话', exact: true }).getAttribute('title'), /停止|核对/);
+    await page.getByRole('menu').press('Escape');
+    assert.deepEqual((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0], before);
+  }
+  await app.evaluate(({ app }) => {
+    const { DatabaseSync } = process.getBuiltinModule('node:sqlite');
+    const database = new DatabaseSync(app.getPath('userData') + '/agentx.db');
+    try { database.exec("UPDATE tasks SET execution_state='completed'"); } finally { database.close(); }
+  });
+});
 
 test('会话改名：右键入口保存新标题，重开保留且不改变执行事实', { timeout: 90000 }, async () => {
   let { app, page, data } = await launch();
@@ -135,12 +209,12 @@ test('v9 会话升级：打包应用先备份旧结构，原会话保留，首�
     const before = (await page.evaluate(() => window.agentx.getWorkspace())).tasks[0];
     await app.close();
     const old = new DatabaseSync(path.join(data, 'agentx.db'));
-    try { old.exec('ALTER TABLE tasks DROP COLUMN pinned_at; ALTER TABLE tasks DROP COLUMN organization_revision; PRAGMA user_version=9'); }
+    try { old.exec('ALTER TABLE tasks DROP COLUMN archived_at; ALTER TABLE tasks DROP COLUMN pinned_at; ALTER TABLE tasks DROP COLUMN organization_revision; PRAGMA user_version=9'); }
     finally { old.close(); }
     ({ app, page } = await launch(data));
     await page.getByRole('button', { name: before.title, exact: true }).waitFor();
     assert.deepEqual((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0], before);
-    const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v11\..+\.db$/.test(name));
+    const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v12\..+\.db$/.test(name));
     assert.equal(backups.length, 1);
     const backup = new DatabaseSync(path.join(data, backups[0]), { readOnly: true });
     try {
@@ -225,7 +299,7 @@ test('会话置顶 IPC：非法参数和旧修订不能置顶或取消，也不�
   await assert.rejects(page.evaluate(value => window.agentx.setTaskPinned(value), { ...request, pinned: false }), /已被其他操作更新/);
   await assert.rejects(page.evaluate(value => window.agentx.renameTask(value), { taskId, operationId: randomUUID(), expectedRevision: 0, title: '旧修订覆盖' }), /已被其他操作更新/);
   assert.deepEqual((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0], saved);
-  assert.deepEqual({ ...saved, pinnedAt: null, organizationRevision: 0 }, before);
+  assert.deepEqual({ ...saved, archivedAt: null, pinnedAt: null, organizationRevision: 0 }, before);
 });
 
 test('v10 会话升级：先备份已改名的组织修订，置顶后不重置原修订或执行事实', { timeout: 60000 }, async () => {
@@ -237,11 +311,11 @@ test('v10 会话升级：先备份已改名的组织修订，置顶后不重置�
     const before = await page.evaluate(value => window.agentx.renameTask(value), { taskId, operationId: randomUUID(), expectedRevision: 0, title: '升级前已改过名' });
     await app.close();
     const old = new DatabaseSync(path.join(data, 'agentx.db'));
-    try { old.exec('ALTER TABLE tasks DROP COLUMN pinned_at; PRAGMA user_version=10'); } finally { old.close(); }
+    try { old.exec('ALTER TABLE tasks DROP COLUMN archived_at; ALTER TABLE tasks DROP COLUMN pinned_at; PRAGMA user_version=10'); } finally { old.close(); }
     ({ app, page } = await launch(data));
     await page.getByRole('button', { name: before.title, exact: true }).waitFor();
     assert.deepEqual((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0], before);
-    const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v11\..+\.db$/.test(name));
+    const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v12\..+\.db$/.test(name));
     assert.equal(backups.length, 1);
     const original = new DatabaseSync(path.join(data, backups[0]), { readOnly: true });
     try {
@@ -253,5 +327,46 @@ test('v10 会话升级：先备份已改名的组织修订，置顶后不重置�
     const saved = await page.evaluate(value => window.agentx.setTaskPinned(value), { taskId, operationId: randomUUID(), expectedRevision: 1, pinned: true });
     assert.equal(saved.organizationRevision, 2);
     assert.deepEqual({ ...saved, organizationRevision: 1, pinnedAt: null }, before);
+  } finally { await app.close(); }
+});
+
+test('v11 升级与归档重开：备份原置顶和组织修订，历史关联与原文件保留，显式恢复不执行', { timeout: 60000 }, async () => {
+  const fs = require('node:fs/promises');
+  const { DatabaseSync } = require('node:sqlite');
+  let { app, page, data } = await launch();
+  try {
+    const taskId = await seedTask(app);
+    const before = await page.evaluate(value => window.agentx.setTaskPinned(value), { taskId, operationId: randomUUID(), expectedRevision: 0, pinned: true });
+    const source = path.join(data, '人工原件.txt'); await fs.writeFile(source, '人工原件，不得删除或改写\n', 'utf8');
+    await app.close();
+    const old = new DatabaseSync(path.join(data, 'agentx.db'));
+    try { old.exec('ALTER TABLE tasks DROP COLUMN archived_at; PRAGMA user_version=11'); } finally { old.close(); }
+    ({ app, page } = await launch(data));
+    assert.deepEqual((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0], before);
+    const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v12\..+\.db$/.test(name));
+    assert.equal(backups.length, 1);
+    const original = new DatabaseSync(path.join(data, backups[0]), { readOnly: true });
+    try {
+      assert.equal(original.prepare('PRAGMA user_version').get().user_version, 11);
+      assert.equal(original.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+      const row = original.prepare('SELECT * FROM tasks').get();
+      assert.equal(row.organization_revision, before.organizationRevision); assert.equal(row.pinned_at, before.pinnedAt);
+      assert.equal(original.prepare('PRAGMA table_info(tasks)').all().some(column => column.name === 'archived_at'), false);
+    } finally { original.close(); }
+    await page.getByRole('button', { name: before.title, exact: true }).press('Shift+F10');
+    await page.getByRole('menuitem', { name: '重命名会话', exact: true }).press('End');
+    await page.getByRole('menuitem', { name: '归档会话', exact: true }).press('Enter');
+    await page.getByRole('button', { name: '撤销归档', exact: true }).waitFor();
+    const archived = (await page.evaluate(() => window.agentx.getWorkspace())).tasks[0];
+    assert.ok(archived.archivedAt);
+    await app.close(); ({ app, page } = await launch(data));
+    assert.deepEqual((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0], archived);
+    assert.equal(await page.getByRole('button', { name: before.title, exact: true }).count(), 0);
+    const restored = await page.evaluate(value => window.agentx.setTaskArchived(value),
+      { taskId, operationId: randomUUID(), expectedRevision: archived.organizationRevision, archived: false });
+    await page.getByRole('button', { name: before.title, exact: true }).waitFor();
+    assert.deepEqual({ ...restored, organizationRevision: before.organizationRevision }, before);
+    assert.equal((await page.evaluate(() => window.agentx.getExecution())).task, null);
+    assert.equal(await fs.readFile(source, 'utf8'), '人工原件，不得删除或改写\n');
   } finally { await app.close(); }
 });

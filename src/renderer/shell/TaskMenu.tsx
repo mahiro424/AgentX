@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { TaskPinIcon } from './TaskPinIcon';
+import { TaskArchiveIcon } from './TaskArchiveIcon';
 import { createPortal } from 'react-dom';
 import type { TaskMenuState } from './useWorkspace';
 
-export function TaskMenu({ menu, onRename, onPin, busy, onClose }: { menu: TaskMenuState; onRename: () => void; onPin: () => void; busy: boolean; onClose: (restoreFocus?: boolean) => void }) {
+export function TaskMenu({ menu, onRename, onPin, onArchive, busy, onClose }: { menu: TaskMenuState; onRename: () => void; onPin: () => void; onArchive: () => void; busy: boolean; onClose: (restoreFocus?: boolean) => void }) {
   const element = useRef<HTMLDivElement>(null);
+  const archiveBlocked = menu.task.archivedAt === null && !['idle', 'completed', 'failed', 'interrupted', 'unconfirmed'].includes(menu.task.executionState);
   useEffect(() => {
     element.current?.querySelector<HTMLButtonElement>('button')?.focus();
     const outside = (event: PointerEvent) => { if (!element.current?.contains(event.target as Node)) onClose(false); };
@@ -27,6 +29,7 @@ export function TaskMenu({ menu, onRename, onPin, busy, onClose }: { menu: TaskM
       }
     }}>
     <button role="menuitem" onClick={onRename}>重命名会话</button>
-    <button role="menuitem" disabled={busy} onClick={onPin}><TaskPinIcon />{menu.task.pinnedAt === null ? '置顶会话' : '取消置顶会话'}</button>
+    {menu.task.archivedAt === null && <button role="menuitem" disabled={busy} onClick={onPin}><TaskPinIcon />{menu.task.pinnedAt === null ? '置顶会话' : '取消置顶会话'}</button>}
+    <button role="menuitem" disabled={busy || archiveBlocked} title={archiveBlocked ? '请先停止或核对执行，不能归档' : undefined} onClick={onArchive}><TaskArchiveIcon />{menu.task.archivedAt === null ? '归档会话' : '恢复会话'}</button>
   </div>, document.body);
 }

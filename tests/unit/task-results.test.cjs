@@ -63,13 +63,13 @@ test('v7 迁移：原会话、意图和一致性备份保留，缺失的轮次�
   const { readTaskResults } = require('../../src/main/services/task-results.ts');
   const value = await fixture(), before = readWorkspace(value.root);
   const database = new DatabaseSync(path.join(value.root, 'agentx.db'));
-  try { database.exec('ALTER TABLE tasks DROP COLUMN pinned_at; ALTER TABLE tasks DROP COLUMN organization_revision; DROP TABLE runtime_leases; DROP INDEX execution_intents_turn; ALTER TABLE execution_intents DROP COLUMN turn_id; PRAGMA user_version=7'); }
+  try { database.exec('ALTER TABLE tasks DROP COLUMN archived_at; ALTER TABLE tasks DROP COLUMN pinned_at; ALTER TABLE tasks DROP COLUMN organization_revision; DROP TABLE runtime_leases; DROP INDEX execution_intents_turn; ALTER TABLE execution_intents DROP COLUMN turn_id; PRAGMA user_version=7'); }
   finally { database.close(); }
   assert.equal(readTurnOperation(value.root, value.taskId, value.request.turnId), null);
   assert.deepEqual(readWorkspace(value.root), before);
   assert.equal(readSubmissionIntent(value.root, value.operationId).phase, 'settled');
   await assert.rejects(readTaskResults(value.root, value.request), /没有已确认的基线关联/);
-  const backups = (await fs.readdir(value.root)).filter(name => /^agentx\.before-v11\..+\.db$/.test(name));
+  const backups = (await fs.readdir(value.root)).filter(name => /^agentx\.before-v12\..+\.db$/.test(name));
   assert.equal(backups.length, 1);
   const previous = new DatabaseSync(path.join(value.root, backups[0]), { readOnly: true });
   try {

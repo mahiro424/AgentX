@@ -2,7 +2,7 @@ import { ProjectService } from './services/projects';
 import { createProductTray } from './lifecycle/tray';
 import { readDraft, saveDraft } from './storage/drafts';
 import { DRAFT_READ_CHANNEL, DRAFT_SAVE_CHANNEL } from '../shared/contracts/drafts';
-import { PROJECT_RENAME_CHANNEL, TASK_RENAME_CHANNEL, TASK_PIN_CHANNEL, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, WORKSPACE_READ_CHANNEL } from '../shared/contracts/projects';
+import { PROJECT_RENAME_CHANNEL, TASK_RENAME_CHANNEL, TASK_PIN_CHANNEL, TASK_ARCHIVE_CHANNEL, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, WORKSPACE_READ_CHANNEL } from '../shared/contracts/projects';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session } from 'electron';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -49,7 +49,7 @@ const execution = new ExecutionService(dataRoot, app.isPackaged ? process.resour
     mainWindow.webContents.send(WORKSPACE_CHANGED_CHANNEL);
   }
 });
-const projects = new ProjectService(dataRoot, () => execution.read().task);
+const projects = new ProjectService(dataRoot, () => execution.read().task, taskId => execution.prepareTaskArchive(taskId));
 let modelSettingsVisible = false;
 
 function updateExitState(value: ExitSnapshot): void {
@@ -225,6 +225,12 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(PROJECT_RENAME_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 1);
       const result = projects.rename(args[0]);
+      mainWindow!.webContents.send(WORKSPACE_CHANGED_CHANNEL);
+      return result;
+    });
+    ipcMain.handle(TASK_ARCHIVE_CHANNEL, async (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      const result = await projects.setTaskArchived(args[0]);
       mainWindow!.webContents.send(WORKSPACE_CHANGED_CHANNEL);
       return result;
     });

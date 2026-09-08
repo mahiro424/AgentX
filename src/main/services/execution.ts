@@ -175,6 +175,25 @@ export class ExecutionService {
     }
   }
 
+  async prepareTaskArchive(taskId: string): Promise<void> {
+    if (this.current?.taskId !== taskId || !this.runtime) return;
+    if (this.closing || this.preparing || this.stopPending) throw new Error('会话正在准备、停止或退出，请完成核对后再归档');
+    const task = this.read().task;
+    if (!task?.threadId || !['completed', 'failed', 'interrupted', 'unconfirmed'].includes(task.executionState)) throw new Error('会话尚有活动执行，不能归档');
+    this.preparing = true;
+    this.preparationDone = new Promise(resolve => { this.finishPreparation = resolve; });
+    this.changed();
+    try {
+      await Promise.allSettled(this.historyReads);
+      // 空集合只核对列表，不发终止请求；归档不是用户授权的停止操作。
+      const remaining = await terminateBackgroundTerminals(this.runtime.transport, task.threadId, new Set());
+      if (remaining) throw new Error('会话仍有后台终端，请先停止或核对；归档不会自动终止命令');
+      await this.closeOwnedRuntime(true);
+    } finally {
+      this.preparing = false; this.finishPreparation?.(); this.finishPreparation = null; this.changed();
+    }
+  }
+
   private async releaseCompletedRuntime(): Promise<void> {
     if (!this.runtime) return;
     if (this.current && readSubmissionIntent(this.root, this.current.operationId) === null) {
@@ -241,6 +260,7 @@ export class ExecutionService {
       text: input.text, configRevision: Number(input.configRevision) };
     const workspace = readWorkspace(this.root);
     const previous = continuing ? workspace.tasks.find(task => task.taskId === request.taskId) : undefined;
+    if (previous?.archivedAt) throw new Error('会话已归档，请先显式恢复，不能自动执行');
     if (continuing && (!('threadId' in input) || !('expectedTurnId' in input) || !previous?.threadId || !previous.turnId ||
         previous.threadId !== input.threadId || previous.turnId !== input.expectedTurnId || previous.projectId !== request.projectId ||
         !['completed', 'failed', 'interrupted'].includes(previous.executionState))) throw new Error('原会话轮次已变化或尚未确认结束，请重读状态；不会自动重发');

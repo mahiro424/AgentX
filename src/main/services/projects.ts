@@ -1,9 +1,9 @@
 import { dialog, type BrowserWindow } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { ProjectChoice, ProjectRename, ProjectRecord, ProjectSummary, TaskSummary, WorkspaceSnapshot, TaskRename, TaskPin, OrganizedTaskSummary } from '../../shared/contracts/projects';
+import type { ProjectChoice, ProjectRename, ProjectRecord, ProjectSummary, TaskSummary, WorkspaceSnapshot, TaskRename, TaskPin, TaskArchive, OrganizedTaskSummary } from '../../shared/contracts/projects';
 import { associateProject, readWorkspace, renameProject } from '../storage/projects';
-import { renameTask, setTaskPinned } from '../storage/tasks';
+import { renameTask, setTaskPinned, setTaskArchived } from '../storage/tasks';
 
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
 
@@ -22,7 +22,8 @@ async function directoryStatus(directory: string): Promise<Pick<ProjectSummary, 
 
 export class ProjectService {
   private choosing = false;
-  constructor(private readonly root: string, private readonly readCurrentTask: () => TaskSummary | null = () => null) {}
+  constructor(private readonly root: string, private readonly readCurrentTask: () => TaskSummary | null = () => null,
+    private readonly prepareTaskArchive?: (taskId: string) => Promise<void>) {}
 
   async read(): Promise<WorkspaceSnapshot> {
     const records = readWorkspace(this.root);
@@ -31,9 +32,24 @@ export class ProjectService {
     const current = this.readCurrentTask();
     return { projects,
       tasks: records.tasks.map(task => current?.taskId === task.taskId && current.projectId === task.projectId && current.directory === task.directory
-        ? { ...task, ...current, title: task.title, organizationRevision: task.organizationRevision, pinnedAt: task.pinnedAt }
+        ? { ...task, ...current, title: task.title, organizationRevision: task.organizationRevision, pinnedAt: task.pinnedAt, archivedAt: task.archivedAt }
         : { ...task, executionState: ['idle', 'completed', 'failed', 'interrupted', 'unconfirmed'].includes(task.executionState) ? task.executionState : 'reconciling' }),
     };
+  }
+
+  async setTaskArchived(request: unknown): Promise<OrganizedTaskSummary> {
+    if (!request || typeof request !== 'object' || Array.isArray(request) || Object.keys(request).length !== 4 ||
+        !('operationId' in request) || !uuid(request.operationId) || !('taskId' in request) || !uuid(request.taskId) ||
+        !('expectedRevision' in request) || !Number.isSafeInteger(request.expectedRevision) || Number(request.expectedRevision) < 0 ||
+        !('archived' in request) || typeof request.archived !== 'boolean') throw new Error('会话归档请求无效');
+    if (request.archived && this.prepareTaskArchive) {
+      const current = readWorkspace(this.root).tasks.find(task => task.taskId === request.taskId);
+      if (!current || current.organizationRevision !== request.expectedRevision) throw new Error('会话已被其他操作更新或不存在，请刷新后重试归档或恢复');
+      await this.prepareTaskArchive(current.taskId);
+    }
+    const value = setTaskArchived(this.root, request as TaskArchive);
+    if (!value) throw new Error('会话已被其他操作更新或不存在，请刷新后重试归档或恢复');
+    return value;
   }
 
   setTaskPinned(request: unknown): OrganizedTaskSummary {

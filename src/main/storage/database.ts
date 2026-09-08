@@ -7,11 +7,11 @@ export function withDatabase<T>(root: string, action: (database: DatabaseSync) =
   try {
     database = new DatabaseSync(path.join(root, 'agentx.db'));
     const version = database.prepare('PRAGMA user_version').get()?.user_version;
-    if (typeof version !== 'number' || !Number.isInteger(version) || version < 0 || version > 11) throw new Error('unsupported-version');
+    if (typeof version !== 'number' || !Number.isInteger(version) || version < 0 || version > 12) throw new Error('unsupported-version');
     if (version === 0 && database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").get()) throw new Error('unknown-schema');
     database.exec('PRAGMA foreign_keys=ON');
-    if (version < 11) {
-      if (version > 0) database.prepare('VACUUM INTO ?').run(path.join(root, `agentx.before-v11.${randomUUID()}.db`));
+    if (version < 12) {
+      if (version > 0) database.prepare('VACUUM INTO ?').run(path.join(root, `agentx.before-v12.${randomUUID()}.db`));
       database.exec('BEGIN IMMEDIATE');
     }
     if (version === 0) {
@@ -81,7 +81,11 @@ export function withDatabase<T>(root: string, action: (database: DatabaseSync) =
     }
     if (version < 11) {
       database.exec(`ALTER TABLE tasks ADD COLUMN pinned_at TEXT;
-        PRAGMA user_version=11; COMMIT;`);
+        PRAGMA user_version=11;`);
+    }
+    if (version < 12) {
+      database.exec(`ALTER TABLE tasks ADD COLUMN archived_at TEXT;
+        PRAGMA user_version=12; COMMIT;`);
     }
     return action(database);
   } catch (cause) {
@@ -90,6 +94,8 @@ export function withDatabase<T>(root: string, action: (database: DatabaseSync) =
     const reasons: Record<number, string> = { 5: '数据库正在被占用', 6: '数据库已锁定', 8: '数据库为只读', 11: '数据库损坏', 14: '无法打开数据库文件', 19: '数据约束冲突', 26: '文件不是有效数据库' };
     const reason = cause instanceof Error && cause.message === 'unsupported-version' ? '数据库版本不受支持' :
       cause instanceof Error && cause.message === 'runtime-lease-pending' ? '仍有引擎归属及后台回收待核对，禁止创建新执行' :
+      cause instanceof Error && cause.message === 'task-archive-blocked' ? '会话仍有活动执行、未决发送或后台回收待核对，请先停止或核对，不能归档' :
+      cause instanceof Error && cause.message === 'task-archived' ? '会话已归档，请先显式恢复，不能自动执行' :
       cause instanceof Error && cause.message === 'invalid-draft-revision' ? '草稿已被其他操作更新，请先核对保存版本' :
       cause instanceof Error && /^(invalid-|unknown-schema)/u.test(cause.message) ? '产品记录格式或关联无效' :
       kind !== null && reasons[kind] ? reasons[kind] : '请检查产品数据库权限、格式和迁移记录';

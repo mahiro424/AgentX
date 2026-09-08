@@ -34,6 +34,7 @@ export function acquireRuntimeLease(root: string, value: RuntimeLeaseInput): voi
   validateLease(value);
   withDatabase(root, database => {
     database.exec('BEGIN IMMEDIATE');
+    if (database.prepare('SELECT 1 FROM tasks WHERE task_id=? AND archived_at IS NOT NULL').get(value.taskId)) throw new Error('task-archived');
     if (database.prepare('SELECT 1 FROM runtime_leases WHERE released_at IS NULL').get()) throw new Error('runtime-lease-pending');
     database.prepare(`INSERT INTO runtime_leases
       (lease_id,instance_id,task_id,operation_id,project_id,process_identity,created_at) VALUES (?,?,?,?,?,?,?)`)

@@ -35,6 +35,7 @@ async function fixture(t) {
       } else assert.fail(`未预期的方法：${request.method}`);
     });
     const transport = new CodexTransport(input, output, handlers);
+    await controls.beforeOpen?.();
     return { transport, identity: { pid: 1234, parentPid: process.pid, createdAt: new Date().toISOString(), executablePath: path.join(root, 'synthetic-codex.exe') },
       close: async () => { connection.closed = true; transport.close(); input.destroy(); output.destroy(); } };
   });
@@ -55,6 +56,68 @@ async function fixture(t) {
     threadId: first.threadId, expectedTurnId: service.read().task.turnId });
   return { service, root, directory, sent, connections, turns, captures, controls, first, firstRequest, nextRequest, complete };
 }
+
+test('归档准备：已结束且后台为空时仅回收自有空闲引擎，不停止命令、不创建新轮', async t => {
+  const f = await fixture(t); f.complete();
+  const before = require('../../src/main/storage/projects.ts').readWorkspace(f.root).tasks[0];
+  const sentBefore = f.sent.length;
+  await f.service.prepareTaskArchive(f.first.taskId);
+  assert.equal(f.connections[0].closed, true);
+  assert.ok(f.sent.slice(sentBefore).every(request => request.method === 'thread/backgroundTerminals/list'));
+  assert.equal(require('../../src/main/storage/runtime-leases.ts').readRuntimeLeases(f.root)[0].releasedAt !== null, true);
+  assert.deepEqual(require('../../src/main/storage/projects.ts').readWorkspace(f.root).tasks[0], before);
+  const archived = require('../../src/main/storage/tasks.ts').setTaskArchived(f.root,
+    { taskId: before.taskId, operationId: randomUUID(), expectedRevision: before.organizationRevision, archived: true });
+  assert.ok(archived.archivedAt);
+  const count = f.sent.length;
+  await assert.rejects(f.service.continue(f.nextRequest()), /归档/);
+  assert.equal(f.sent.length, count);
+});
+
+test('归档准备拒绝活动与后台残留：不发中断或终止，不释放归属、不改组织记录', async t => {
+  const f = await fixture(t);
+  const leases = require('../../src/main/storage/runtime-leases.ts');
+  const before = leases.readRuntimeLeases(f.root);
+  const count = f.sent.length;
+  await assert.rejects(f.service.prepareTaskArchive(f.first.taskId), /活动/);
+  assert.equal(f.sent.length, count);
+  f.complete();
+  f.controls.terminals = [{ processId: 'owned-background', itemId: 'command-item' }];
+  await assert.rejects(f.service.prepareTaskArchive(f.first.taskId), /后台终端/);
+  assert.equal(f.connections[0].closed, false);
+  assert.deepEqual(leases.readRuntimeLeases(f.root), before);
+  assert.ok(f.sent.slice(count).every(request => request.method === 'thread/backgroundTerminals/list'));
+  assert.equal(require('../../src/main/storage/projects.ts').readWorkspace(f.root).tasks[0].archivedAt, null);
+});
+
+test('未确认收尾可归档：按状态契约核验空后台并回收空闲引擎，不把 unconfirmed 伪装成功', async t => {
+  const f = await fixture(t); f.complete();
+  // 合成已人工收尾的产品记录；不冒充 M2-05 的真实崩溃恢复验收。
+  const { DatabaseSync } = require('node:sqlite');
+  const database = new DatabaseSync(path.join(f.root, 'agentx.db'));
+  try { database.exec("UPDATE tasks SET execution_state='unconfirmed'"); } finally { database.close(); }
+  await f.service.prepareTaskArchive(f.first.taskId);
+  const saved = require('../../src/main/storage/tasks.ts').setTaskArchived(f.root,
+    { taskId: f.first.taskId, operationId: randomUUID(), expectedRevision: 0, archived: true });
+  assert.equal(saved.executionState, 'unconfirmed'); assert.ok(saved.archivedAt);
+  assert.equal(f.connections[0].closed, true);
+  assert.equal(f.sent.filter(request => request.method === 'turn/start').length, 1);
+});
+
+test('归档与续轮竞态：握手期间已归档则拒绝取得执行归属，不派发新轮或重放原请求', async t => {
+  const f = await fixture(t); f.complete();
+  const store = require('../../src/main/storage/tasks.ts');
+  f.controls.beforeOpen = () => store.setTaskArchived(f.root, { taskId: f.first.taskId,
+    operationId: randomUUID(), expectedRevision: 0, archived: true });
+  const request = f.nextRequest();
+  await assert.rejects(f.service.continue(request), /归档/);
+  assert.equal(f.connections[1].closed, true);
+  assert.equal(store.readSubmissionIntent(f.root, request.operationId), null);
+  assert.equal(f.sent.filter(request => request.method === 'turn/start').length, 1);
+  assert.equal(f.sent.filter(request => request.method === 'thread/resume').length, 0);
+  assert.equal(require('../../src/main/storage/runtime-leases.ts').readRuntimeLeases(f.root).length, 1);
+  assert.ok(require('../../src/main/storage/projects.ts').readWorkspace(f.root).tasks[0].archivedAt);
+});
 
 test('nextTurn：同任务恢复原 thread，以新配置发送独立轮次并保留原轮意图', async t => {
   const f = await fixture(t); f.complete();

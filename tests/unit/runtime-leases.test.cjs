@@ -44,11 +44,11 @@ test('v8 升级保留任务与意图的精确关联，旧版本快照可读取�
   const intent = { operationId: randomUUID(), text: '保留原始要求', modelId: 'deepseek-v4-flash', configRevision: 1, credentialRef: randomUUID() };
   beginTaskSubmission(root, task, intent);
   const database = new DatabaseSync(path.join(root, 'agentx.db'));
-  try { database.exec('ALTER TABLE tasks DROP COLUMN pinned_at; ALTER TABLE tasks DROP COLUMN organization_revision; DROP TABLE runtime_leases; PRAGMA user_version=8'); } finally { database.close(); }
+  try { database.exec('ALTER TABLE tasks DROP COLUMN archived_at; ALTER TABLE tasks DROP COLUMN pinned_at; ALTER TABLE tasks DROP COLUMN organization_revision; DROP TABLE runtime_leases; PRAGMA user_version=8'); } finally { database.close(); }
   assert.deepEqual(readRuntimeLeases(root), []);
-  assert.deepEqual(readWorkspace(root).tasks, [{ ...task, pinnedAt: null, organizationRevision: 0 }]);
+  assert.deepEqual(readWorkspace(root).tasks, [{ ...task, archivedAt: null, pinnedAt: null, organizationRevision: 0 }]);
   assert.deepEqual(readSubmissionIntent(root, intent.operationId), { ...intent, taskId: task.taskId, phase: 'prepared' });
-  const backups = (await fs.readdir(root)).filter(name => /^agentx\.before-v11\..+\.db$/.test(name));
+  const backups = (await fs.readdir(root)).filter(name => /^agentx\.before-v12\..+\.db$/.test(name));
   assert.equal(backups.length, 1);
   const before = new DatabaseSync(path.join(root, backups[0]), { readOnly: true });
   try {

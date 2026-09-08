@@ -95,6 +95,7 @@ function App() {
   const reconciliationTaskId = selectedTask?.executionState === 'reconciling' || (selectedTask && reconciliationTaskIds.includes(selectedTask.taskId))
     ? selectedTask!.taskId : reconciliationTaskIds[0] ?? (busyTask?.executionState === 'reconciling' ? busyTask.taskId : null);
   const blockedReason = submitting || execution.snapshot?.preparing ? '正在提交，请等待确认，不会重复发送。'
+    : selectedTask?.archivedAt ? '会话已归档，请先显式恢复后再发送；原草稿和历史保留。'
     : draftState.loading || draftState.saving || draftState.error ? '请先确认草稿已读取并保存。'
     : !workspace.snapshot || workspace.error || !execution.snapshot || execution.error ? '请先完成项目和执行状态读取。'
     : reconciliationTaskIds.length ? '存在引擎或后台回收待核对，不会发送新任务。'
@@ -240,6 +241,7 @@ function App() {
   return <div className="app-shell">
     {workspace.editing && <ProjectEditor project={workspace.editing} onSaved={() => void workspace.load()} onClose={workspace.closeEditor} />}
     {workspace.taskMenu && <TaskMenu menu={workspace.taskMenu} onRename={workspace.startTaskEditing} busy={!!workspace.organizingTaskId}
+      onArchive={() => void workspace.archiveTask(workspace.taskMenu!.task, workspace.taskMenu!.trigger)}
       onPin={() => void workspace.pinTask(workspace.taskMenu!.task, workspace.taskMenu!.trigger)} onClose={workspace.closeTaskMenu} />}
     {workspace.editingTask && <TaskEditor task={workspace.editingTask} onSaved={() => void workspace.load()} onClose={workspace.closeTaskEditor} />}
     {sidebarOpen && <aside ref={sidebar} className="sidebar" aria-label="侧栏" style={{ width: sidebarWidth }}>
@@ -274,6 +276,8 @@ function App() {
               onClick={event => workspace.openTaskMenu(selectedTask, event.currentTarget)}>⋯</button>}
           </div>
           <p>{currentState ? currentState === 'stopping' ? '正在停止，等待引擎确认…' : taskStateLabel[currentState] : selectedTask ? taskStateLabel[selectedTask.executionState] : '用自然语言描述目标，在这里开始工作。'}</p>
+          {selectedTask?.archivedAt && <p className="muted">已归档 · 原历史和文件保留 <button className="secondary-button" aria-label="恢复会话"
+            disabled={!!workspace.organizingTaskId} onClick={event => void workspace.archiveTask(selectedTask, event.currentTarget)}>恢复会话</button></p>}
           {canInspect && <button ref={resultsTrigger} className="secondary-button inspect-results" aria-label="查看文件改动" aria-expanded={resultsOpen} onClick={() => { setOutputSelection(null); setResultsTask(selectedTask!.taskId); }}>查看文件改动</button>}
         </div>
         {(selectedTask || currentExecution || reconciliationTaskId) && <div className="execution-transcript">
@@ -376,6 +380,10 @@ function App() {
         </div>
       </main>
       <div className="read-status">
+        {!sidebarOpen && (workspace.taskActionError || workspace.error) && <div role="alert" className="error-message">
+          {workspace.taskActionError}{workspace.error && <p>{workspace.error}</p>}
+          <button className="secondary-button" onClick={() => void workspace.load()}>重读会话列表</button>
+        </div>}
         {(!info || !preferences) && !error && <p role="status" className="muted">正在读取应用信息与本地偏好…</p>}
         {error && <div role="alert" className="error-message">{error} <button className="secondary-button" onClick={() => void readAppInfo()}>重试</button></div>}
       </div>

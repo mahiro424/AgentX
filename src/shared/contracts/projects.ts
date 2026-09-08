@@ -4,11 +4,13 @@ export const WORKSPACE_CHANGED_CHANNEL = 'agentx:workspace-changed';
 export const PROJECT_RENAME_CHANNEL = 'agentx:project-rename';
 export const TASK_RENAME_CHANNEL = 'agentx:task-rename';
 export const TASK_PIN_CHANNEL = 'agentx:task-pin';
+export const TASK_ARCHIVE_CHANNEL = 'agentx:task-archive';
 
 export interface ProjectOperation { operationId: string }
 export interface ProjectRename extends ProjectOperation { projectId: string; displayName: string; expectedRevision: number }
 export interface TaskRename extends ProjectOperation { taskId: string; title: string; expectedRevision: number }
 export interface TaskPin extends ProjectOperation { taskId: string; pinned: boolean; expectedRevision: number }
+export interface TaskArchive extends ProjectOperation { taskId: string; archived: boolean; expectedRevision: number }
 export type ProjectChoice = { status: 'cancelled' } | { status: 'associated' | 'duplicate'; project: ProjectRecord };
 
 export interface ProjectRecord {
@@ -44,4 +46,4 @@ export interface TaskSummary {
 }
 
 // 组织修订由产品维护，不进入引擎执行快照的并发控制。
-export interface OrganizedTaskSummary extends TaskSummary { organizationRevision: number; pinnedAt: string | null }
+export interface OrganizedTaskSummary extends TaskSummary { organizationRevision: number; pinnedAt: string | null; archivedAt: string | null }

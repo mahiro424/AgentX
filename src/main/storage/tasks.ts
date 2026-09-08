@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { EXECUTION_STATES, type TaskSummary, type OrganizedTaskSummary, type TaskRename, type TaskPin } from '../../shared/contracts/projects';
+import { EXECUTION_STATES, type TaskSummary, type OrganizedTaskSummary, type TaskRename, type TaskPin, type TaskArchive } from '../../shared/contracts/projects';
 import { withDatabase } from './database';
 import { FLASH_MODEL_ID } from '../../shared/contracts/models';
 import type { ReconciliationIntent } from '../../shared/contracts/reconciliation';
@@ -155,7 +155,9 @@ function organizedTaskFromRow(row: Record<string, unknown>): OrganizedTaskSummar
   }
   if (row.pinned_at !== null && (typeof row.pinned_at !== 'string' || !Number.isFinite(Date.parse(row.pinned_at)) ||
       new Date(row.pinned_at).toISOString() !== row.pinned_at)) throw new Error('invalid-task-pin');
-  return { ...taskFromRow(row), organizationRevision: row.organization_revision, pinnedAt: row.pinned_at as string | null };
+  if (row.archived_at !== null && (typeof row.archived_at !== 'string' || !Number.isFinite(Date.parse(row.archived_at)) ||
+      new Date(row.archived_at).toISOString() !== row.archived_at)) throw new Error('invalid-task-archive');
+  return { ...taskFromRow(row), organizationRevision: row.organization_revision, pinnedAt: row.pinned_at as string | null, archivedAt: row.archived_at as string | null };
 }
 
 export function readOrganizedTaskRecords(database: DatabaseSync): OrganizedTaskSummary[] {
@@ -185,6 +187,24 @@ export function setTaskPinned(root: string, request: TaskPin): OrganizedTaskSumm
   });
 }
 
+export function setTaskArchived(root: string, request: TaskArchive): OrganizedTaskSummary | null {
+  return withDatabase(root, database => {
+    database.exec('BEGIN IMMEDIATE');
+    const current = database.prepare('SELECT * FROM tasks WHERE task_id=? AND organization_revision=?').get(request.taskId, request.expectedRevision);
+    if (!current) { database.exec('COMMIT'); return null; }
+    // 状态、发送意图和进程归属与组织写入共用事务；不能用前端禁用代替执行侧事实。
+    if (request.archived && (!['idle', 'completed', 'failed', 'interrupted', 'unconfirmed'].includes(current.execution_state as string) ||
+      database.prepare("SELECT 1 FROM execution_intents WHERE task_id=? AND phase<>'settled'").get(request.taskId) ||
+      database.prepare('SELECT 1 FROM runtime_leases WHERE task_id=? AND released_at IS NULL').get(request.taskId))) throw new Error('task-archive-blocked');
+    const row = database.prepare(`UPDATE tasks SET archived_at=CASE WHEN ? THEN COALESCE(archived_at,?) ELSE NULL END,
+      organization_revision=organization_revision+1 WHERE task_id=? AND organization_revision=? RETURNING *`)
+      .get(request.archived ? 1 : 0, new Date().toISOString(), request.taskId, request.expectedRevision);
+    const value = organizedTaskFromRow(row!);
+    database.exec('COMMIT');
+    return value;
+  });
+}
+
 export function beginTaskContinuation(root: string, previous: TaskSummary, intent: SubmissionInput): void {
   validateTask(previous); validateSubmission(intent);
   if (!previous.threadId || !previous.turnId || !['completed', 'failed', 'interrupted'].includes(previous.executionState)) throw new Error('invalid-continuation');
@@ -192,7 +212,7 @@ export function beginTaskContinuation(root: string, previous: TaskSummary, inten
   withDatabase(root, database => {
     database.exec('BEGIN IMMEDIATE');
     const task = database.prepare(`UPDATE tasks SET execution_state='submitting', turn_id=NULL, observed_at=?, last_activity_at=?
-      WHERE task_id=? AND thread_id=? AND turn_id=? AND execution_state=? AND project_id=? AND directory=?
+      WHERE task_id=? AND thread_id=? AND turn_id=? AND execution_state=? AND project_id=? AND directory=? AND archived_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM execution_intents WHERE task_id=? AND phase<>'settled')`)
       .run(now, now, previous.taskId, previous.threadId, previous.turnId, previous.executionState, previous.projectId, previous.directory, previous.taskId);
     if (task.changes !== 1) throw new Error('invalid-continuation-binding');
