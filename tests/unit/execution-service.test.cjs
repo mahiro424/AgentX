@@ -189,3 +189,39 @@ test('执行入口：固定资源缺失不发送任务，保留明确失败且�
   assert.deepEqual(engineFiles, ['models.json']);
   assert.equal((await fs.readFile(path.join(root, 'engine', 'codex', 'models.json'), 'utf8')).includes('synthetic-no-network-key'), false);
 });
+
+
+test('产品历史读取：只接受 taskId，从产品记录定位历史，无密钥也能读取已结束会话', async t => {
+  const { ExecutionService } = require('../../src/main/services/execution.ts');
+  const boundary = require('../../src/main/runtime/codex/process.ts');
+  const { associateProject } = require('../../src/main/storage/projects.ts');
+  const { createTaskRecord } = require('../../src/main/storage/tasks.ts');
+  const root = await fs.mkdtemp(path.resolve('.local-validation/m1-05/product-history-'));
+  const project = associateProject(root, root).project;
+  const taskId = randomUUID(), now = new Date().toISOString();
+  createTaskRecord(root, { taskId, projectId: project.projectId, directory: root, title: '已结束任务',
+    executionState: 'completed', threadId: 'history-thread', turnId: 'history-turn', lastActivityAt: now, observedAt: now });
+  const calls = []; let closed = 0, reportedStatus = 'completed';
+  t.mock.method(boundary, 'openCodex', async options => {
+    assert.equal(options.environment.AGENTX_API_KEY, undefined);
+    assert.equal(options.workingDirectory, root);
+    return { transport: { call: async (method, params) => {
+      calls.push({ method, params });
+      return { thread: { id: 'history-thread', cwd: root, turns: [{ id: 'history-turn', status: reportedStatus, itemsView: 'full', items: [], error: null }] } };
+    } }, close: async () => { closed++; } };
+  });
+  const service = new ExecutionService(root, root, { captureExecution: async () => assert.fail('历史不读取凭据') });
+  t.after(() => service.close());
+  const history = await service.readHistory({ taskId });
+  assert.equal(history.taskId, taskId);
+  assert.equal(history.threadId, 'history-thread');
+  assert.equal(history.turns[0].turnId, 'history-turn');
+  assert.equal(closed, 1);
+  assert.deepEqual(calls, [{ method: 'thread/read', params: { threadId: 'history-thread', includeTurns: true } }]);
+  assert.equal(service.read().task, null);
+  await assert.rejects(service.readHistory({ taskId, threadId: 'foreign-thread' }), /无效/);
+  await assert.rejects(service.readHistory({ taskId: randomUUID() }), /不存在/);
+  assert.equal(calls.length, 1);
+  reportedStatus = 'inProgress';
+  await assert.rejects(service.readHistory({ taskId }), /历史.*状态.*不一致/);
+});

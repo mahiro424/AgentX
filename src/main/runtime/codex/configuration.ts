@@ -7,6 +7,22 @@ import type { ConfigReadParams } from '../../../../runtime/generated/codex/v2/Co
 
 export async function prepareCodexConfiguration(root: string, snapshot: { modelId: string; apiKey: string }, systemEnvironment: NodeJS.ProcessEnv = process.env) {
   if (!path.isAbsolute(root) || snapshot.modelId !== FLASH_MODEL_ID || !/^[\x21-\x7e]{1,4096}$/.test(snapshot.apiKey)) throw new Error('引擎配置无效，本阶段只支持 Flash 与有效凭据');
+  const prepared = await prepareConfiguration(root, systemEnvironment);
+  // 必须在构造 shell 白名单之后加入引擎密钥，既不落盘，也不通过命令行参数传递。
+  prepared.environment.AGENTX_API_KEY = snapshot.apiKey;
+  return prepared;
+}
+
+export async function prepareCodexHistoryConfiguration(root: string, systemEnvironment: NodeJS.ProcessEnv = process.env) {
+  const prepared = await prepareConfiguration(root, systemEnvironment);
+  // 冷读取仅使用本地历史，不解密用户凭据，也不提供可执行的模型连接。
+  prepared.overrides = prepared.overrides.map(value => value.startsWith('model_providers.deepseek.base_url=')
+    ? 'model_providers.deepseek.base_url="http://127.0.0.1:9"' : value);
+  return prepared;
+}
+
+async function prepareConfiguration(root: string, systemEnvironment: NodeJS.ProcessEnv) {
+  if (!path.isAbsolute(root)) throw new Error('引擎数据目录必须为绝对路径');
   let engineHome = await fs.realpath(root);
   for (const segment of ['engine', 'codex']) {
     engineHome = path.join(engineHome, segment);
@@ -38,8 +54,6 @@ export async function prepareCodexConfiguration(root: string, snapshot: { modelI
     'model_providers.deepseek.wire_api="responses"', 'model_providers.deepseek.env_key="AGENTX_API_KEY"',
     'model_providers.deepseek.requires_openai_auth=false', 'model_providers.deepseek.request_max_retries=0', 'model_providers.deepseek.stream_max_retries=0',
   ];
-  // 必须在构造 shell 白名单之后加入引擎密钥，既不落盘，也不通过命令行参数传递。
-  environment.AGENTX_API_KEY = snapshot.apiKey;
   return { engineHome, environment, overrides };
 }
 

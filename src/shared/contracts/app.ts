@@ -1,6 +1,7 @@
 import type { ProjectChoice, ProjectOperation, ProjectRename, ProjectRecord, WorkspaceSnapshot } from './projects';
 import type { ExecutionStart, ExecutionControl, ExecutionSnapshot, ExecutionSteer, ExecutionApproval } from './execution';
 import type { TaskSummary } from './projects';
+import type { TaskHistory, TaskHistoryRequest } from './history';
 import type { DraftScope, DraftRecord, DraftSave } from './drafts';
 import type { ModelTestRequest, ActiveModelChange, ConnectionChange, KeySubmission, ModelOperation, ModelSelectionChange, ModelSettings } from './models';
 
@@ -21,6 +22,7 @@ export interface AppInfo {
 }
 
 export interface AgentXBridge {
+  getTaskHistory(value: TaskHistoryRequest): Promise<TaskHistory>;
   getDraft(value: DraftScope): Promise<DraftRecord>;
   saveDraft(value: DraftSave): Promise<DraftRecord>;
   getExecution(): Promise<ExecutionSnapshot>;

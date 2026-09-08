@@ -7,8 +7,10 @@ import { parseApprovalRequest, answerApproval, type ApprovalRequest } from '../r
 import { startThread, startTurn, interruptTurn, steerTurn, terminateBackgroundTerminals } from '../runtime/codex/execution';
 import type { CodexTransport } from '../runtime/codex/transport';
 import type { ModelService } from './models';
-import { prepareCodexConfiguration } from '../runtime/codex/configuration';
-import { openExecutionCodex } from '../runtime/codex/process';
+import { prepareCodexConfiguration, prepareCodexHistoryConfiguration } from '../runtime/codex/configuration';
+import { openExecutionCodex, openCodex } from '../runtime/codex/process';
+import { readThreadHistory } from '../runtime/codex/history';
+import type { TaskHistory } from '../../shared/contracts/history';
 import { FLASH_MODEL_ID } from '../../shared/contracts/models';
 import type { ExecutionItem, ExecutionSnapshot, ExecutionControl, ExecutionPlan } from '../../shared/contracts/execution';
 import { parseMessageEvent, parseCommandEvent, parseFileChangeEvent, parsePlanEvent } from '../runtime/codex/events';
@@ -23,6 +25,7 @@ export class ExecutionService {
   private controlOperations = new Set<string>();
   private runtime: Awaited<ReturnType<typeof openExecutionCodex>> | null = null;
   private current: { taskId: string; operationId: string; session: FirstTurnSession } | null = null;
+  private historyReads = new Set<Promise<TaskHistory>>();
 
   constructor(private readonly root: string, private readonly resourcesDirectory: string,
     private readonly models: Pick<ModelService, 'captureExecution'>, private readonly onChange: () => void = () => {}) {}
@@ -35,6 +38,37 @@ export class ExecutionService {
       task: this.current ? readWorkspace(this.root).tasks.find(task => task.taskId === this.current!.taskId) ?? null : null,
       operationId: this.current?.operationId ?? null, items: this.current?.session.readItems() ?? [],
       approvals: this.current?.session.readApprovals() ?? [], error: this.error, ...(plan ? { plan } : {}), ...(intent ? { inputText: intent.text } : {}) };
+  }
+
+  async readHistory(input: unknown): Promise<TaskHistory> {
+    if (this.closing) throw new Error('应用正在退出，不能读取历史');
+    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 1 ||
+        !('taskId' in input) || typeof input.taskId !== 'string' || !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(input.taskId)) throw new Error('历史读取请求无效');
+    const task = readWorkspace(this.root).tasks.find(value => value.taskId === input.taskId);
+    if (!task) throw new Error('任务不存在，无法读取历史');
+    if (!task.threadId || !task.turnId || !['completed', 'failed', 'interrupted'].includes(task.executionState)) throw new Error('本阶段仅能读取已结束轮次；未决任务须先核对状态');
+    const load = async (): Promise<TaskHistory> => {
+      const read = async (transport: CodexTransport) => {
+        const history = await readThreadHistory(transport, task.threadId!, task.directory);
+        const latest = history.turns.find(turn => turn.turnId === task.turnId);
+        if (!latest) throw new Error('历史缺少产品记录的轮次，不能显示为空会话');
+        if (latest.status !== task.executionState || history.turns.some(turn => turn.status === 'inProgress')) {
+          throw new Error('历史与产品记录的轮次状态不一致，需核对；不会自动重发任务');
+        }
+        return { taskId: task.taskId, ...history };
+      };
+      if (this.runtime) return read(this.runtime.transport);
+      const configuration = await prepareCodexHistoryConfiguration(this.root);
+      const runtime = await openCodex({ resourcesDirectory: this.resourcesDirectory, workingDirectory: this.root, ...configuration }, {
+        notification() {}, request() { throw new Error('只读历史意外请求执行权限'); }, disconnected() {},
+      });
+      try { return await read(runtime.transport); }
+      finally { await runtime.close(); }
+    };
+    const pending = load();
+    this.historyReads.add(pending);
+    try { return await pending; }
+    finally { this.historyReads.delete(pending); }
   }
 
   private changed(): void {
@@ -83,6 +117,7 @@ export class ExecutionService {
 
   async close(): Promise<void> {
     this.closing = true;
+    await Promise.allSettled(this.historyReads);
     await this.preparationDone;
     if (this.runtime) { await this.runtime.close(); this.runtime = null; }
   }

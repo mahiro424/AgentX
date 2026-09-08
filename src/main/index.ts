@@ -10,6 +10,7 @@ import { readPreferences, savePreferences } from './storage/preferences';
 import { MODEL_SETTINGS_CHANGED_CHANNEL, MODEL_TEST_CHANNEL, MODEL_SETTINGS_READ_CHANNEL, MODEL_KEY_SAVE_CHANNEL, MODEL_KEY_REVEAL_CHANNEL, MODEL_SETTINGS_VISIBLE_CHANNEL, MODEL_ENABLED_CHANNEL, MODEL_CATALOG_FETCH_CHANNEL, MODEL_SELECTION_CHANNEL, MODEL_ACTIVE_CHANNEL } from '../shared/contracts/models';
 import { ModelService } from './services/models';
 import { ExecutionService } from './services/execution';
+import { TASK_HISTORY_READ_CHANNEL } from '../shared/contracts/history';
 import { EXECUTION_READ_CHANNEL, EXECUTION_START_CHANNEL, EXECUTION_STOP_CHANNEL, EXECUTION_CHANGED_CHANNEL } from '../shared/contracts/execution';
 import { EXECUTION_STEER_CHANNEL, EXECUTION_APPROVAL_CHANNEL } from '../shared/contracts/execution';
 
@@ -111,6 +112,10 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(EXECUTION_READ_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 0);
       return execution.read();
+    });
+    ipcMain.handle(TASK_HISTORY_READ_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return execution.readHistory(args[0]);
     });
     ipcMain.handle(EXECUTION_START_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 1);

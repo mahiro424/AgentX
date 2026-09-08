@@ -8,6 +8,8 @@ import './styles.css';
 import { ModelSettings } from './pages/ModelSettings';
 import { ModelPicker } from './components/ModelPicker';
 import { useExecution } from './workbench/useExecution';
+import { useHistory } from './workbench/useHistory';
+import { HistoryTimeline } from './workbench/HistoryTimeline';
 import { useDraft } from './workbench/useDraft';
 import { ExecutionTimeline } from './workbench/ExecutionTimeline';
 import { taskStateLabel } from './shell/TaskStatus';
@@ -55,6 +57,7 @@ function App() {
   }
   const selectedProject = workspace.snapshot?.projects.find(project => project.projectId === workspace.selectedProjectId);
   const selectedTask = workspace.snapshot?.tasks.find(task => task.taskId === workspace.selectedTaskId);
+  const history = useHistory(selectedTask && ['completed', 'failed', 'interrupted'].includes(selectedTask.executionState) ? selectedTask.taskId : null);
   const draftState = useDraft({ projectId: workspace.selectedProjectId, taskId: workspace.selectedTaskId });
   const draft = draftState.text, setDraft = draftState.setText;
   const [modelConfiguration, setModelConfiguration] = useState<ModelConfiguration | null>(null);
@@ -144,8 +147,11 @@ function App() {
   const sidebar = useRef<HTMLElement>(null);
 
   function openWorkbench() {
+    const focused = document.activeElement;
     setView('workbench');
-    requestAnimationFrame(() => input.current?.focus());
+    requestAnimationFrame(() => {
+      if (document.activeElement === focused || document.activeElement === document.body) input.current?.focus();
+    });
   }
 
   function newSession() { selection.current.generation++; setExecutionActionError(null); workspace.setSelectedTaskId(null); openWorkbench(); }
@@ -226,12 +232,15 @@ function App() {
     </aside>}
     <div className="workspace">
       <header className="window-bar drag-region">{!sidebarOpen && <><button ref={sidebarToggle} className="icon-button" aria-label="展开侧栏" onClick={toggleSidebar}><PanelIcon /></button><button className="icon-button" aria-label="新会话" onClick={newSession}>＋</button><button className="icon-button" aria-label="设置" onClick={() => setView('settings')}><SettingsIcon /></button></>}</header>
-      <main className={`welcome${currentExecution?.task ? ' execution-workbench' : ''}`} hidden={view !== 'workbench'}>
+      <main className={`welcome${selectedTask || currentExecution?.task ? ' execution-workbench' : ''}`} hidden={view !== 'workbench'}>
         <div className="welcome-heading">
-          <h1>{selectedTask?.title ?? '今天想完成什么工作？'}</h1>
-          <p>{currentState ? currentState === 'stopping' ? '正在停止，等待引擎确认…' : taskStateLabel[currentState] : selectedTask ? '当前仅展示产品会话记录；执行内容与历史读取尚未接入。' : '用自然语言描述目标，在这里开始工作。'}</p>
+          <h1 title={selectedTask?.title}>{selectedTask?.title ?? '今天想完成什么工作？'}</h1>
+          <p>{currentState ? currentState === 'stopping' ? '正在停止，等待引擎确认…' : taskStateLabel[currentState] : selectedTask ? taskStateLabel[selectedTask.executionState] : '用自然语言描述目标，在这里开始工作。'}</p>
         </div>
-        {currentExecution && <ExecutionTimeline items={currentExecution.items} approvals={currentExecution.approvals} pending={pendingApprovals}
+        {history.loading && <p role="status" className="muted">正在读取会话历史…</p>}
+        {history.error && <p role="alert" className="error-message">历史读取失败：{history.error} <button className="secondary-button" onClick={() => void history.load()}>重新读取历史</button></p>}
+        {history.value && <HistoryTimeline history={history.value} />}
+        {currentExecution && !history.value && <ExecutionTimeline items={currentExecution.items} approvals={currentExecution.approvals} pending={pendingApprovals}
           inputText={currentExecution.inputText}
           plan={currentExecution.plan} active={!!currentState && ['running', 'waitingApproval', 'waitingInput', 'stopping'].includes(currentState) && !execution.error}
           canAnswer={currentState === 'waitingApproval' && !execution.error && !stopping} onAnswer={(token, decision) => void answerApproval(token, decision)} />}
