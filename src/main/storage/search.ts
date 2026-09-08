@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { setImmediate } from 'node:timers/promises';
 import { DatabaseSync } from 'node:sqlite';
 import type { TaskSearchTarget } from '../../shared/contracts/search';
 
@@ -75,7 +76,13 @@ export function preserveDamagedSearchCache(root: string): boolean {
   return true;
 }
 
-function withSearchDatabase<T>(root: string, action: (database: DatabaseSync) => T): T {
+function searchDatabaseError(cause: unknown): Error {
+  const code = (cause as { errcode?: number }).errcode;
+  // 不把索引文件或原始文本带入错误；损坏不能通过自动清库伪装成功。
+  return new Error(`搜索索引读取或写入失败，请检查缓存权限、格式或重试重建${typeof code === 'number' ? `（SQLite ${code}）` : ''}`);
+}
+
+function openSearchDatabase(root: string): DatabaseSync {
   let database: DatabaseSync | undefined;
   try {
     database = new DatabaseSync(validateSearchCache(root));
@@ -90,12 +97,17 @@ function withSearchDatabase<T>(root: string, action: (database: DatabaseSync) =>
         CREATE TABLE search_coverage (task_id TEXT PRIMARY KEY, task_revision TEXT NOT NULL, indexed_at TEXT, error TEXT, partial_reason TEXT);
         PRAGMA user_version=1; COMMIT;`);
     }
-    return action(database);
+    return database;
   } catch (cause) {
-    const code = (cause as { errcode?: number }).errcode;
-    // 不把索引文件或原始文本带入错误；损坏不能通过自动清库伪装成功。
-    throw new Error(`搜索索引读取或写入失败，请检查缓存权限、格式或重试重建${typeof code === 'number' ? `（SQLite ${code}）` : ''}`);
-  } finally { database?.close(); }
+    database?.close(); throw searchDatabaseError(cause);
+  }
+}
+
+function withSearchDatabase<T>(root: string, action: (database: DatabaseSync) => T): T {
+  const database = openSearchDatabase(root);
+  try { return action(database); }
+  catch (cause) { throw searchDatabaseError(cause); }
+  finally { database.close(); }
 }
 
 export function replaceSearchTask(root: string, coverage: SearchTaskCoverage, items: SearchTextRecord[]): void {
@@ -124,13 +136,32 @@ export function readSearchCoverage(root: string): SearchTaskCoverage[] {
   })));
 }
 
-export function findSearchText(root: string, query: string): SearchTextRecord[] {
-  return withSearchDatabase(root, database => database.prepare(`SELECT * FROM search_items
-    WHERE instr(lower(visible_text), lower(?)) > 0 ORDER BY task_id, ordinal`).all(query).map(row => ({
-    taskId: row.task_id as string, threadId: row.thread_id as string, turnId: row.turn_id as string,
-    itemId: row.item_id as string, kind: row.kind as string, visibleText: row.visible_text as string,
-    sourceRevision: row.source_revision as string,
-  })));
+export async function* readSearchText(root: string): AsyncGenerator<(SearchTextRecord & { ordinal: number })[]> {
+  const database = openSearchDatabase(root);
+  const changed = new Error('搜索期间索引已更新，请重新查询');
+  try {
+    // 同一连接的 data_version 检出其他写入者；不持有跨批次读事务阻塞实时索引。
+    const version = database.prepare('PRAGMA data_version');
+    const initialVersion = version.get()!.data_version;
+    const verifyVersion = () => { if (version.get()!.data_version !== initialVersion) throw changed; };
+    const fence = database.prepare('SELECT MAX(rowid) AS id FROM search_items').get()?.id as number | null;
+    const read = database.prepare('SELECT rowid AS id, * FROM search_items WHERE rowid > ? AND rowid <= ? ORDER BY rowid LIMIT 256');
+    let cursor = 0;
+    while (fence !== null && cursor < fence) {
+      verifyVersion();
+      // 限制实际扫描行数，不能在 WHERE 匹配后才 LIMIT，否则无命中仍会同步扫描全库。
+      const rows = read.all(cursor, fence);
+      verifyVersion();
+      if (!rows.length) break;
+      cursor = rows.at(-1)!.id as number;
+      yield rows.map(row => ({ taskId: row.task_id as string, threadId: row.thread_id as string, turnId: row.turn_id as string,
+        itemId: row.item_id as string, kind: row.kind as string, visibleText: row.visible_text as string,
+        sourceRevision: row.source_revision as string, ordinal: row.ordinal as number }));
+      await setImmediate();
+    }
+    verifyVersion();
+  } catch (cause) { throw cause === changed ? changed : searchDatabaseError(cause); }
+  finally { database.close(); }
 }
 
 export function hasSearchSource(root: string, source: TaskSearchTarget): boolean {

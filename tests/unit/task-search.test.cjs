@@ -70,7 +70,7 @@ test('搜索隐私：只投影可见字段，剔除已识别密钥与认证头�
 });
 
 test('搜索缓存归属：拒绝目录链接和数据库硬链接，查询与重建均不改变外部缓存', async () => {
-  for (const mode of ['directory', 'hardlink']) {
+  for (const mode of ['directory', 'hardlink', 'journal', 'wal', 'shm']) {
     const f = await fixture(), external = await fixture();
     await external.service.rebuild();
     const externalCache = path.join(external.root, 'cache'), externalFile = path.join(externalCache, 'search.sqlite');
@@ -78,7 +78,7 @@ test('搜索缓存归属：拒绝目录链接和数据库硬链接，查询与�
     if (mode === 'directory') await fs.symlink(externalCache, path.join(f.root, 'cache'), 'junction');
     else {
       await fs.mkdir(path.join(f.root, 'cache'));
-      await fs.link(externalFile, path.join(f.root, 'cache', 'search.sqlite'));
+      await fs.link(externalFile, path.join(f.root, 'cache', mode === 'hardlink' ? 'search.sqlite' : `search.sqlite-${mode}`));
     }
     await assert.rejects(f.service.query({ query: '季度收入', scope: 'body', projectId: null, includeArchived: false }), /缓存|索引/);
     await assert.rejects(f.service.rebuild(), /缓存|索引/);
@@ -125,6 +125,30 @@ test('损坏索引恢复：查询先报错，显式重建保留损坏文件并�
   assert.equal(preserved.length, 1); assert.deepEqual(await fs.readFile(path.join(cache, preserved[0])), damaged);
   assert.deepEqual(await fs.readFile(path.join(f.root, 'agentx.db')), productBefore);
   assert.deepEqual(f.readWorkspace(f.root), f.before);
+});
+
+test('损坏索引保留失败：回滚成功或部分保留均明确报告，不继续重建或丢失证据', async t => {
+  const sync = require('node:fs');
+  for (const rollbackFails of [false, true]) {
+    const f = await fixture(); await f.service.rebuild();
+    const cache = path.join(f.root, 'cache'), file = path.join(cache, 'search.sqlite');
+    const damaged = Buffer.from('合成损坏库'), sidecar = Buffer.from('合成共享内存');
+    await fs.writeFile(file, damaged); await fs.writeFile(`${file}-shm`, sidecar);
+    const rename = sync.renameSync;
+    const mock = t.mock.method(sync, 'renameSync', (from, to) => {
+      if (from === `${file}-shm` || (rollbackFails && to === file)) throw Object.assign(new Error('合成文件权限拒绝'), { code: 'EACCES' });
+      return rename(from, to);
+    });
+    try {
+      await assert.rejects(f.service.rebuild(), rollbackFails ? /部分文件仍在.*保留位置.*未开始重建/ : /已恢复原位置.*未开始重建/);
+    } finally { mock.mock.restore(); }
+    assert.equal(f.calls.length, 1, '保留未完成，不得再读取引擎建立新索引');
+    const preserved = (await fs.readdir(cache)).filter(name => /^search\.damaged-.*\.sqlite$/.test(name));
+    assert.equal(preserved.length, rollbackFails ? 1 : 0);
+    assert.deepEqual(await fs.readFile(rollbackFails ? path.join(cache, preserved[0]) : file), damaged);
+    assert.deepEqual(await fs.readFile(`${file}-shm`), sidecar);
+    assert.deepEqual(f.readWorkspace(f.root), f.before);
+  }
 });
 
 test('索引结构缺失：已知版本缺少表时可显式重建，未知版本和独占锁不得触发替换', async () => {
@@ -261,6 +285,49 @@ test('字面高亮：中文、ASCII 大小写、标点与 emoji 一致，片段�
   for (const query of ['a.b_100%', "' OR 1=1 --", '不存在的片段']) {
     assert.equal((await f.service.query({ query, scope: 'body', projectId: null, includeArchived: false })).results.length, 0);
   }
+});
+
+test('容量查询：有命中与无命中均让出事件循环，不截断历史或重新读取引擎', async () => {
+  const f = await fixture();
+  f.history.turns[0].items = Array.from({ length: 4096 }, (_, index) => ({ kind: 'message',
+    threadId: f.task.threadId, turnId: f.task.turnId, itemId: `capacity-${index}`,
+    text: `中文容量 A+B_100% ${'abcdef '.repeat(100)} ${index}`, status: 'completed', phase: 'final_answer' }));
+  await f.service.rebuild();
+  for (const [query, expectedItem] of [['a+b_100%', 'capacity-0'], ['4095', 'capacity-4095'], ['不存在的容量标记', null]]) {
+    let pulses = 0, handle;
+    const pulse = () => { pulses++; handle = setImmediate(pulse); };
+    handle = setImmediate(pulse);
+    try {
+      const result = await f.service.query({ query, scope: 'body', projectId: null, includeArchived: false });
+      assert.ok(pulses >= 2, '长查询过程中应持续处理其他事件，而不是一次同步扫描后才响应');
+      assert.equal(result.results.length, expectedItem ? 1 : 0);
+      if (expectedItem) assert.equal(result.results[0].source.itemId, expectedItem);
+      assert.equal(result.coverage.coveredTasks, 1);
+    } finally { clearImmediate(handle); }
+  }
+  assert.equal(f.calls.length, 1); assert.deepEqual(f.readWorkspace(f.root), f.before);
+});
+
+test('查询期间更新：索引可继续写入，但不得把两版内容拼成完整结果；重查可定位新来源', async () => {
+  const f = await fixture();
+  f.history.turns[0].items = Array.from({ length: 2048 }, (_, index) => ({ kind: 'message',
+    threadId: f.task.threadId, turnId: f.task.turnId, itemId: `changing-${index}`,
+    text: '原始中文标记', status: 'completed', phase: 'final_answer' }));
+  await f.service.rebuild();
+  const request = { query: '中文标记', scope: 'body', projectId: null, includeArchived: false };
+  const old = await f.service.query(request);
+  const reading = f.service.query(request);
+  const rejected = assert.rejects(reading, /索引.*更新|期间.*变化/, '查询期间提交新索引应明确要求重查，不能假称是单一完整快照');
+  await new Promise(resolve => setImmediate(resolve));
+  for (const item of f.history.turns[0].items) item.text = '更新后的中文标记';
+  await f.service.rebuild();
+  await rejected;
+  const fresh = await f.service.query(request);
+  assert.equal(fresh.coverage.coveredTasks, 1);
+  assert.notEqual(fresh.results[0].source.sourceRevision, old.results[0].source.sourceRevision);
+  const located = await f.service.locate({ taskId: f.task.taskId, ...fresh.results[0].source });
+  assert.equal(located.history.turns[0].items[0].text, '更新后的中文标记');
+  assert.deepEqual(f.readWorkspace(f.root), f.before);
 });
 
 test('筛选与排序：项目和归档范围不串记录，标题优先，其次按字面命中数和活动排序且每会话唯一', async () => {

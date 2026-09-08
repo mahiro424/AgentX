@@ -4,7 +4,7 @@ import type { TaskHistory, HistoryItem } from '../../shared/contracts/history';
 import type { TaskSummary } from '../../shared/contracts/projects';
 import type { TaskSearchRequest, TaskSearchSnapshot, TaskSearchResult, SearchSnippet, TaskSearchTarget, TaskSearchLocation, SearchIndexState } from '../../shared/contracts/search';
 import { readWorkspace } from '../storage/projects';
-import { findSearchText, readSearchCoverage, replaceSearchTask, markSearchUnavailable, hasSearchSource, validateSearchCache, preserveDamagedSearchCache, type SearchTextRecord } from '../storage/search';
+import { readSearchText, readSearchCoverage, replaceSearchTask, markSearchUnavailable, hasSearchSource, validateSearchCache, preserveDamagedSearchCache, type SearchTextRecord } from '../storage/search';
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 const taskRevision = (task: TaskSummary) => hash(JSON.stringify([task.threadId, task.turnId, task.executionState, task.observedAt]));
@@ -164,12 +164,16 @@ export class TaskSearchService {
     const tasks = workspace.tasks.filter(task => (request.includeArchived || task.archivedAt === null) &&
       (request.projectId === null || task.projectId === request.projectId));
     const coverage = new Map(readSearchCoverage(this.root).map(value => [value.taskId, value]));
-    const bodies = new Map<string, SearchTextRecord>();
+    const bodies = new Map<string, SearchTextRecord & { ordinal: number }>();
     const relevance = new Map<string, number>();
     if (request.query && request.scope !== 'title') {
-      for (const item of findSearchText(this.root, request.query)) {
-        if (!bodies.has(item.taskId)) bodies.set(item.taskId, item);
-        relevance.set(item.taskId, (relevance.get(item.taskId) ?? 0) + matchCount(item.visibleText, request.query));
+      const taskIds = new Set(tasks.map(task => task.taskId));
+      for await (const batch of readSearchText(this.root)) for (const item of batch) {
+        if (!taskIds.has(item.taskId)) continue;
+        const count = matchCount(item.visibleText, request.query);
+        if (!count) continue;
+        if (!bodies.has(item.taskId) || bodies.get(item.taskId)!.ordinal > item.ordinal) bodies.set(item.taskId, item);
+        relevance.set(item.taskId, (relevance.get(item.taskId) ?? 0) + count);
       }
     }
     const results: TaskSearchResult[] = [];

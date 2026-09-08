@@ -48,6 +48,75 @@ test('搜索入口：图标与 Ctrl+K 打开真实标题查询，Escape 返回�
   assert.deepEqual(await page.evaluate(() => window.agentx.getWorkspace()), before);
 });
 
+test('搜索键盘：组合输入不打开命中或关闭浮层，Tab 保持在浮层内，确认后 Enter 才打开', { timeout: 45000 }, async t => {
+  const { app, page } = await launch(); t.after(() => app.close());
+  const [task] = await seedSearchTasks(app);
+  const draft = page.getByRole('textbox', { name: '任务要求', exact: true });
+  await draft.focus();
+  await draft.dispatchEvent('keydown', { key: 'k', ctrlKey: true, isComposing: true, bubbles: true });
+  const dialog = page.getByRole('dialog', { name: '搜索会话', exact: true });
+  assert.equal(await dialog.isVisible(), false);
+  await draft.press('Control+k');
+  const query = dialog.getByRole('textbox', { name: '搜索会话内容' });
+  await query.fill('季度');
+  const hit = dialog.getByRole('button', { name: `打开会话：${task.title}`, exact: true }); await hit.waitFor();
+  await page.waitForFunction(() => !document.querySelector('.search-result')?.disabled);
+  await query.focus(); await query.press('Shift+Tab');
+  assert.equal(await dialog.evaluate(node => node.contains(document.activeElement)), true);
+  for (let count = 0; count < 16; count++) {
+    await page.keyboard.press('Tab');
+    assert.equal(await dialog.evaluate(node => node.contains(document.activeElement)), true, '键盘焦点不能越过模态浮层');
+  }
+  await query.focus();
+  await query.dispatchEvent('compositionstart', { data: '季', bubbles: true });
+  await query.dispatchEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true });
+  await query.press('Enter'); // 即使 native isComposing 缺失，组合输入锁也必须保护。
+  await query.press('Escape');
+  assert.equal(await dialog.isVisible(), true); assert.equal(await query.inputValue(), '季度');
+  await query.dispatchEvent('compositionend', { data: '季度', bubbles: true });
+  await query.press('Enter');
+  await dialog.waitFor({ state: 'hidden' });
+  assert.equal((await page.evaluate(() => window.agentx.getExecution())).task, null);
+});
+
+test('搜索旧响应：较早查询的成功或失败晚到，不覆盖新查询结果与加载状态', { timeout: 45000 }, async t => {
+  const { app, page } = await launch(); t.after(() => app.close());
+  const tasks = await seedSearchTasks(app);
+  await page.getByRole('button', { name: '搜索会话', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '搜索会话', exact: true });
+  await dialog.getByText('已覆盖 2/2 个会话', { exact: true }).waitFor();
+  await app.evaluate(({ app, ipcMain }, repository) => {
+    const req = process.getBuiltinModule('node:module').createRequire(repository + '/package.json');
+    const service = new (req(repository + '/src/main/services/task-search.ts').TaskSearchService)(app.getPath('userData'), async () => { throw new Error('本测试查询不读取引擎'); });
+    globalThis.delayedSearchReplies = [];
+    ipcMain.removeHandler('agentx:task-search');
+    ipcMain.handle('agentx:task-search', async (_event, request) => {
+      const value = await service.query(request);
+      if (request.query !== '季度') return value;
+      return new Promise((resolve, reject) => globalThis.delayedSearchReplies.push({ resolve: () => resolve(value), reject }));
+    });
+  }, path.resolve('.'));
+  const query = dialog.getByRole('textbox', { name: '搜索会话内容' });
+  for (const outcome of ['resolve', 'reject']) {
+    await query.fill('季度');
+    await app.evaluate(() => new Promise((resolve, reject) => {
+      const deadline = Date.now() + 3000;
+      const poll = () => globalThis.delayedSearchReplies.length ? resolve() : Date.now() > deadline ? reject(new Error('未收到待延迟的查询')) : setTimeout(poll, 10);
+      poll();
+    }));
+    await query.fill('收入');
+    const fresh = dialog.getByRole('button', { name: `打开会话：${tasks[1].title}`, exact: true }); await fresh.waitFor();
+    await app.evaluate((_electron, outcome) => {
+      for (const reply of globalThis.delayedSearchReplies.splice(0)) reply[outcome](new Error('较早查询的延迟失败'));
+    }, outcome);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await query.inputValue(), '收入'); assert.equal(await fresh.isDisabled(), false);
+    assert.equal(await dialog.getByRole('button', { name: `打开会话：${tasks[0].title}`, exact: true }).count(), 0);
+    assert.equal(await dialog.getByRole('alert').count(), 0);
+    assert.equal(await dialog.getByRole('group', { name: '搜索结果' }).getAttribute('aria-busy'), 'false');
+  }
+});
+
 test('索引入口：显式重建更新真实覆盖，关闭浮层不启动任务，重新打开仍能读取进度', { timeout: 45000 }, async t => {
   const { app, page } = await launch(); t.after(() => app.close());
   await seedSearchTasks(app);
@@ -98,7 +167,7 @@ test('损坏索引界面：错误保留查询筛选与旧结果，显式重建�
   assert.equal((await page.evaluate(() => window.agentx.getExecution())).task, null);
 });
 
-test('命中历史：原消息精确聚焦，离开后再次选择必须重读，不能复用先前搜索快照', { timeout: 45000 }, async t => {
+test('命中历史：定位失败保留查询并可重试，成功后精确聚焦，离开再次选择必须重读', { timeout: 45000 }, async t => {
   const { app, page } = await launch(); t.after(() => app.close());
   const [task] = await seedSearchTasks(app);
   await app.evaluate(async ({ app, ipcMain, BrowserWindow }, { repository, taskId }) => {
@@ -113,8 +182,12 @@ test('命中历史：原消息精确聚焦，离开后再次选择必须重读�
     const service = new (req(repository + '/src/main/services/task-search.ts').TaskSearchService)(root, async () => history);
     await service.rebuild();
     // 仅把公开历史读取边界替换为确定夹具；搜索存储、查询和定位校验仍运行实际服务。
+    globalThis.failSearchLocation = true;
     ipcMain.removeHandler('agentx:task-search-locate');
-    ipcMain.handle('agentx:task-search-locate', (_event, value) => service.locate(value));
+    ipcMain.handle('agentx:task-search-locate', (_event, value) => {
+      if (globalThis.failSearchLocation) throw new Error('合成命中来源读取故障');
+      return service.locate(value);
+    });
     ipcMain.removeHandler('agentx:task-history-read');
     ipcMain.handle('agentx:task-history-read', () => { throw new Error('离开后原历史读取故障'); });
     BrowserWindow.getAllWindows()[0].webContents.send('agentx:workspace-changed');
@@ -122,7 +195,19 @@ test('命中历史：原消息精确聚焦，离开后再次选择必须重读�
   await page.getByRole('button', { name: '搜索会话', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '搜索会话', exact: true });
   await dialog.getByRole('textbox', { name: '搜索会话内容' }).fill('精确命中');
-  await dialog.getByRole('button', { name: `打开会话：${task.title}`, exact: true }).click();
+  await dialog.getByRole('combobox', { name: '搜索项目' }).selectOption(task.projectId);
+  await dialog.getByRole('checkbox', { name: '包含已归档' }).check();
+  const hit = dialog.getByRole('button', { name: `打开会话：${task.title}`, exact: true });
+  await hit.click();
+  await dialog.getByRole('alert').filter({ hasText: '合成命中来源读取故障' }).waitFor();
+  assert.equal(await hit.isDisabled(), true);
+  assert.equal(await dialog.getByRole('textbox', { name: '搜索会话内容' }).inputValue(), '精确命中');
+  assert.equal(await dialog.getByRole('combobox', { name: '搜索项目' }).inputValue(), task.projectId);
+  assert.equal(await dialog.getByRole('checkbox', { name: '包含已归档' }).isChecked(), true);
+  assert.equal(await page.locator('.search-hit-target').count(), 0);
+  await app.evaluate(() => { globalThis.failSearchLocation = false; });
+  await dialog.getByRole('button', { name: '重试搜索', exact: true }).click();
+  await hit.click();
   await dialog.waitFor({ state: 'hidden' });
   const target = page.locator('.search-hit-target');
   await target.waitFor();
