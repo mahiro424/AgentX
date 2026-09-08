@@ -72,17 +72,26 @@ function App() {
   const [searchLocation, setSearchLocation] = useState<TaskSearchLocation | null>(null);
   useEffect(() => {
     // 定位快照只用于本次打开，离开会话后不能替代下次公开历史读取。
-    if (searchLocation && searchLocation.taskId !== selectedTask?.taskId) setSearchLocation(null);
-  }, [selectedTask?.taskId, searchLocation]);
+    if (searchLocation && (searchLocation.taskId !== selectedTask?.taskId ||
+      searchLocation.history.turns.at(-1)?.turnId !== selectedTask.turnId ||
+      (searchLocation.history.turns.at(-1)?.status === 'inProgress' && ['completed', 'failed', 'interrupted'].includes(selectedTask.executionState)))) setSearchLocation(null);
+  }, [selectedTask?.taskId, selectedTask?.turnId, selectedTask?.executionState, searchLocation]);
   const resultsTrigger = useRef<HTMLButtonElement>(null);
   const canInspect = !!selectedTask?.turnId && ['completed', 'failed', 'interrupted'].includes(selectedTask.executionState);
   const resultsOpen = canInspect && resultsTask === selectedTask?.taskId;
-  const history = useHistory(selectedTask?.taskId ?? null, canInspect ? selectedTask!.turnId : null, searchLocation?.history);
-  const hasCurrentHistory = !!currentExecution?.task?.turnId && !!history.value?.turns.some(turn => turn.turnId === currentExecution.task!.turnId);
+  const liveSearch = !!currentExecution && !canInspect && searchLocation?.taskId === selectedTask?.taskId &&
+    searchLocation?.history.turns.at(-1)?.turnId === currentExecution.task?.turnId;
+  const searchHistory = canInspect && searchLocation?.history.turns.at(-1)?.status === 'inProgress' ? undefined : searchLocation?.history;
+  const history = useHistory(selectedTask?.taskId ?? null, canInspect || liveSearch ? selectedTask!.turnId : null, searchHistory);
+  const hasCurrentHistory = !liveSearch && !!currentExecution?.task?.turnId && !!history.value?.turns.some(turn => turn.turnId === currentExecution.task!.turnId);
+  const liveHistoryTurn = liveSearch ? history.value?.turns.find(turn => turn.turnId === currentExecution?.task?.turnId) : undefined;
+  // 公开历史提供用户项的真实 ID；后到的执行快照覆盖同项内容，不能让搜索快照冻结活动轮。
+  const liveItems = liveHistoryTurn ? [...new Map([...liveHistoryTurn.items, ...currentExecution!.items].map(item => [item.itemId, item])).values()] : currentExecution?.items ?? [];
+  const visibleHistory = liveSearch && history.value ? { ...history.value, turns: history.value.turns.filter(turn => turn.turnId !== currentExecution?.task?.turnId) } : history.value;
   const [outputSelection, setOutputSelection] = useState<{ taskId: string; threadId: string; turnId: string; itemId: string } | null>(null);
   const outputTrigger = useRef<HTMLButtonElement | null>(null);
   const outputItem = outputSelection?.taskId === workspace.selectedTaskId
-    ? [...(history.value?.turns.flatMap(turn => turn.items) ?? []), ...(hasCurrentHistory ? [] : currentExecution?.items ?? [])].find((item): item is CommandItem => item.kind === 'command' &&
+    ? [...(hasCurrentHistory ? [] : liveItems), ...(history.value?.turns.flatMap(turn => turn.items) ?? [])].find((item): item is CommandItem => item.kind === 'command' &&
       item.threadId === outputSelection.threadId && item.turnId === outputSelection.turnId && item.itemId === outputSelection.itemId) : undefined;
   function openOutput(item: CommandItem, trigger: HTMLButtonElement) {
     if (!workspace.selectedTaskId) return;
@@ -313,10 +322,11 @@ function App() {
         {history.loading && <p role="status" className="muted">正在读取会话历史…</p>}
         {history.error && <p role="alert" className="error-message">历史读取失败：{history.error} <button className="secondary-button" onClick={() => void history.load()}>重新读取历史</button></p>}
         {history.value && (history.loading || history.error || history.value.turns.at(-1)?.turnId !== selectedTask?.turnId) && <p className="muted">以下保留先前成功读取的历史，不代表当前轮已结束。</p>}
-        {history.value && <HistoryTimeline history={history.value} onOpenOutput={openOutput}
+        {visibleHistory && <HistoryTimeline history={visibleHistory} onOpenOutput={openOutput}
           searchSource={history.value === searchLocation?.history ? searchLocation.source : undefined} />}
-        {currentExecution && !hasCurrentHistory && <ExecutionTimeline items={currentExecution.items} approvals={currentExecution.approvals} pending={pendingApprovals}
-          inputText={currentExecution.inputText} onOpenOutput={openOutput}
+        {currentExecution && !hasCurrentHistory && <ExecutionTimeline items={liveItems} approvals={currentExecution.approvals} pending={pendingApprovals}
+          inputText={liveItems.some(item => item.kind === 'userMessage') ? undefined : currentExecution.inputText} onOpenOutput={openOutput}
+          searchSource={liveSearch && history.value === searchHistory ? searchLocation?.source : undefined}
           plan={currentExecution.plan} active={!!currentState && ['running', 'waitingApproval', 'waitingInput', 'stopping'].includes(currentState) && !execution.error}
           canAnswer={currentState === 'waitingApproval' && !execution.error && !stopping} onAnswer={(token, decision) => void answerApproval(token, decision)} />}
         </div>}

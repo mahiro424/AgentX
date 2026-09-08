@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { launch } = require('./helpers.cjs');
+const { launch, crashTestApp } = require('./helpers.cjs');
 
 async function seedSearchTasks(app) {
   return app.evaluate(({ app, BrowserWindow }, repository) => {
@@ -67,6 +67,37 @@ test('索引入口：显式重建更新真实覆盖，关闭浮层不启动任�
   assert.equal((await page.evaluate(() => window.agentx.getExecution())).task, null);
 });
 
+test('损坏索引界面：错误保留查询筛选与旧结果，显式重建后恢复且草稿不丢失', { timeout: 45000 }, async t => {
+  const { app, page, data } = await launch(); t.after(() => app.close());
+  const [task] = await seedSearchTasks(app);
+  const draft = page.getByRole('textbox', { name: '任务要求' }); await draft.fill('索引损坏也必须保留的草稿');
+  const before = await page.evaluate(() => window.agentx.getWorkspace());
+  await page.getByRole('button', { name: '搜索会话', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '搜索会话', exact: true });
+  const query = dialog.getByRole('textbox', { name: '搜索会话内容' });
+  await query.fill('季度');
+  await dialog.getByRole('combobox', { name: '搜索项目' }).selectOption(task.projectId);
+  await dialog.getByRole('checkbox', { name: '包含已归档' }).check();
+  await dialog.getByText('已覆盖 2/2 个会话', { exact: true }).waitFor();
+  const hit = dialog.getByRole('button', { name: `打开会话：${task.title}`, exact: true }); await hit.waitFor();
+  await require('node:fs/promises').writeFile(path.join(data, 'cache', 'search.sqlite'), '合成损坏索引，不能当空历史');
+  await query.fill('季度经营');
+  await dialog.getByRole('alert').filter({ hasText: '查询、筛选与原结果仍保留' }).waitFor();
+  assert.equal(await hit.count(), 1); assert.equal(await hit.isDisabled(), true);
+  assert.equal(await query.inputValue(), '季度经营');
+  assert.equal(await dialog.getByRole('combobox', { name: '搜索项目' }).inputValue(), task.projectId);
+  assert.equal(await dialog.getByRole('checkbox', { name: '包含已归档' }).isChecked(), true);
+  await dialog.getByRole('button', { name: '重建索引', exact: true }).click();
+  await dialog.getByRole('status').filter({ hasText: '损坏索引已保留' }).waitFor();
+  await page.waitForFunction(() => !document.querySelector('.search-result')?.disabled);
+  assert.equal(await dialog.getByRole('alert').count(), 0);
+  assert.equal(await query.inputValue(), '季度经营');
+  await query.press('Escape');
+  assert.equal(await draft.inputValue(), '索引损坏也必须保留的草稿');
+  assert.deepEqual(await page.evaluate(() => window.agentx.getWorkspace()), before);
+  assert.equal((await page.evaluate(() => window.agentx.getExecution())).task, null);
+});
+
 test('命中历史：原消息精确聚焦，离开后再次选择必须重读，不能复用先前搜索快照', { timeout: 45000 }, async t => {
   const { app, page } = await launch(); t.after(() => app.close());
   const [task] = await seedSearchTasks(app);
@@ -102,6 +133,63 @@ test('命中历史：原消息精确聚焦，离开后再次选择必须重读�
   await page.getByRole('button', { name: task.title, exact: true }).click();
   await page.getByRole('alert').filter({ hasText: '离开后原历史读取故障' }).waitFor();
   assert.equal(await target.count(), 0);
+});
+
+test('后台索引刷新：保留用户键盘选中行与焦点，不因新执行通知重置选择', { timeout: 45000 }, async t => {
+  const { app, page } = await launch(); t.after(() => app.close());
+  await seedSearchTasks(app);
+  await page.getByRole('button', { name: '搜索会话', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '搜索会话', exact: true });
+  const query = dialog.getByRole('textbox', { name: '搜索会话内容' });
+  await dialog.getByRole('button', { name: /^打开会话：/ }).nth(1).waitFor();
+  await page.waitForFunction(() => !document.querySelector('[data-search-index="1"]').disabled);
+  await query.press('ArrowDown');
+  const selected = await dialog.locator('[aria-current="true"]').getAttribute('aria-label');
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('agentx:workspace-changed'));
+  await page.waitForFunction(() => !document.querySelector('[aria-label="搜索结果"]').getAttribute('aria-busy') || document.querySelector('[aria-label="搜索结果"]').getAttribute('aria-busy') === 'false');
+  await page.waitForTimeout(200);
+  assert.equal(await dialog.locator('[aria-current="true"]').getAttribute('aria-label'), selected);
+  assert.equal(await query.evaluate(element => element === document.activeElement), true);
+  await query.press('Escape');
+});
+
+test('活动命中：定位公开用户消息后仍保留停止，后续执行消息继续显示', { timeout: 45000 }, async t => {
+  const { app, page } = await launch(); t.after(() => crashTestApp(app));
+  const task = await app.evaluate(async ({ app, ipcMain, BrowserWindow }, repository) => {
+    const req = process.getBuiltinModule('node:module').createRequire(repository + '/package.json');
+    req('ts-node').register({ transpileOnly: true, project: repository + '/tsconfig.json' });
+    const root = app.getPath('userData'), projects = req(repository + '/src/main/storage/projects.ts');
+    const project = projects.associateProject(root, root).project, now = new Date().toISOString();
+    const taskId = process.getBuiltinModule('node:crypto').randomUUID();
+    req(repository + '/src/main/storage/tasks.ts').createTaskRecord(root, { taskId, projectId: project.projectId, directory: root, title: '当前轮定位夹具', executionState: 'running', threadId: 'active-thread', turnId: 'active-turn', lastActivityAt: now, observedAt: now });
+    const task = projects.readWorkspace(root).tasks.find(task => task.taskId === taskId);
+    const history = { taskId, threadId: task.threadId, turns: [{ turnId: task.turnId, status: 'inProgress', unrepresentedItemTypes: [], items: [{ kind: 'userMessage', threadId: task.threadId, turnId: task.turnId, itemId: 'active-user', text: '活动用户消息精确来源' }] }] };
+    const service = new (req(repository + '/src/main/services/task-search.ts').TaskSearchService)(root, async () => history);
+    await service.rebuild();
+    // 仅在公开历史/执行快照边界使用夹具；实际索引、源项校验和 Renderer 均不替换。
+    globalThis.searchLiveFixture = { preparing: false, task, operationId: null, items: [], approvals: [], error: null, inputText: '活动用户消息精确来源' };
+    ipcMain.removeHandler('agentx:execution-read'); ipcMain.handle('agentx:execution-read', () => globalThis.searchLiveFixture);
+    ipcMain.removeHandler('agentx:task-search-locate'); ipcMain.handle('agentx:task-search-locate', (_event, value) => service.locate(value));
+    BrowserWindow.getAllWindows()[0].webContents.send('agentx:workspace-changed');
+    BrowserWindow.getAllWindows()[0].webContents.send('agentx:execution-changed');
+    return task;
+  }, path.resolve('.'));
+  await page.getByRole('button', { name: '搜索会话', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '搜索会话', exact: true });
+  await dialog.getByRole('textbox', { name: '搜索会话内容' }).fill('精确来源');
+  await dialog.getByRole('button', { name: `打开会话：${task.title}`, exact: true }).click();
+  await dialog.waitFor({ state: 'hidden' });
+  const target = page.locator('.search-hit-target'); await target.waitFor();
+  assert.equal(await target.getAttribute('data-history-item'), 'active-user');
+  assert.equal(await page.getByLabel('已提交的要求', { exact: true }).count(), 1);
+  await page.getByRole('button', { name: '停止', exact: true }).waitFor();
+  await app.evaluate(({ BrowserWindow }) => {
+    const value = globalThis.searchLiveFixture;
+    value.items.push({ kind: 'message', threadId: value.task.threadId, turnId: value.task.turnId, itemId: 'after-location', text: '定位之后仍收到的真实快照字段', status: 'running', phase: 'commentary' });
+    BrowserWindow.getAllWindows()[0].webContents.send('agentx:execution-changed');
+  });
+  await page.getByText('定位之后仍收到的真实快照字段', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '停止', exact: true }).count(), 1);
 });
 
 test('归档命中：默认隐藏，显式包含后可在结果旁恢复，不开始执行且保留查询', { timeout: 45000 }, async t => {

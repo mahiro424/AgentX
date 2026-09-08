@@ -4,7 +4,7 @@ import type { TaskHistory, HistoryItem } from '../../shared/contracts/history';
 import type { TaskSummary } from '../../shared/contracts/projects';
 import type { TaskSearchRequest, TaskSearchSnapshot, TaskSearchResult, SearchSnippet, TaskSearchTarget, TaskSearchLocation, SearchIndexState } from '../../shared/contracts/search';
 import { readWorkspace } from '../storage/projects';
-import { findSearchText, readSearchCoverage, replaceSearchTask, markSearchUnavailable, hasSearchSource, type SearchTextRecord } from '../storage/search';
+import { findSearchText, readSearchCoverage, replaceSearchTask, markSearchUnavailable, hasSearchSource, validateSearchCache, preserveDamagedSearchCache, type SearchTextRecord } from '../storage/search';
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 const taskRevision = (task: TaskSummary) => hash(JSON.stringify([task.threadId, task.turnId, task.executionState, task.observedAt]));
@@ -64,12 +64,46 @@ function visibleText(item: HistoryItem): string {
 export class TaskSearchService {
   private pending: Promise<void> | null = null;
   private paused = false;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private refreshQueue = new Set<string>();
+  private attempted = new Map<string, string>();
   private indexState: SearchIndexState = { running: false, processed: 0, total: 0, error: null };
   constructor(private readonly root: string, private readonly readHistory: (request: { taskId: string }) => Promise<TaskHistory>, private readonly onChange: () => void = () => {}) {}
 
   getIndexState(): SearchIndexState { return { ...this.indexState }; }
+  ensureIndex(): void {
+    if (this.paused) return;
+    try {
+      const coverage = new Map(readSearchCoverage(this.root).map(value => [value.taskId, value]));
+      for (const task of readWorkspace(this.root).tasks) {
+        const prior = coverage.get(task.taskId), revision = taskRevision(task);
+        if ((!prior?.indexedAt || prior.taskRevision !== revision) && this.attempted.get(task.taskId) !== revision) {
+          this.attempted.set(task.taskId, revision); this.refreshTask(task.taskId);
+        }
+      }
+    } catch (cause) { this.reportIndexError(cause); }
+  }
+  refreshTask(taskId: string): void {
+    if (this.paused) return;
+    this.refreshQueue.add(taskId); this.scheduleRefresh();
+  }
+  private reportIndexError(cause: unknown): void {
+    const message = redactSearchText(cause instanceof Error ? cause.message : '索引更新失败').slice(0, 1000);
+    if (this.indexState.error !== message) { this.indexState.error = message; this.onChange(); }
+  }
+  private scheduleRefresh(): void {
+    if (this.paused || this.pending || this.refreshTimer || !this.refreshQueue.size) return;
+    // 合并流式通知；只读索引工作串行执行，不按 token 启动历史进程或模型轮次。
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      const taskIds = new Set(this.refreshQueue); this.refreshQueue.clear();
+      void this.startRebuild(taskIds).catch(cause => this.reportIndexError(cause));
+    }, 1000);
+  }
   async pause(): Promise<void> {
     this.paused = true;
+    if (this.refreshTimer) { clearTimeout(this.refreshTimer); this.refreshTimer = null; }
+    this.refreshQueue.clear();
     try { await this.pending; }
     catch (cause) {
       // 索引错误不伪装成功，也不阻止执行引擎退出；错误保留在独立状态供退出失败后查看。
@@ -78,14 +112,21 @@ export class TaskSearchService {
   }
   resume(): void { this.paused = false; }
   rebuild(): Promise<void> {
+    if (!this.pending) {
+      if (this.refreshTimer) { clearTimeout(this.refreshTimer); this.refreshTimer = null; }
+      this.refreshQueue.clear();
+    }
+    return this.startRebuild();
+  }
+  private startRebuild(taskIds?: Set<string>): Promise<void> {
     if (this.paused) return Promise.reject(new Error('应用正在退出，索引已暂停'));
     if (this.pending) return this.pending;
     this.indexState = { running: true, processed: 0, total: 0, error: null };
-    const pending = this.runRebuild().catch(cause => {
+    const pending = this.runRebuild(taskIds).catch(cause => {
       this.indexState.error = redactSearchText(cause instanceof Error ? cause.message : '重建索引失败').slice(0, 1000);
       throw new Error(this.indexState.error);
     }).finally(() => {
-      this.pending = null; this.indexState.running = false; this.onChange();
+      this.pending = null; this.indexState.running = false; this.onChange(); this.scheduleRefresh();
     });
     this.pending = pending; return pending;
   }
@@ -156,14 +197,18 @@ export class TaskSearchService {
     return { results, coverage: { totalTasks: tasks.length, coveredTasks: tasks.length - issues.length, issues } };
   }
 
-  private async runRebuild(): Promise<void> {
-    const tasks = readWorkspace(this.root).tasks;
+  private async runRebuild(taskIds?: Set<string>): Promise<void> {
+    validateSearchCache(this.root);
+    if (!taskIds && preserveDamagedSearchCache(this.root)) this.indexState.notice = '损坏索引已保留在缓存目录；重建覆盖情况见下方，不改变会话与原文件。';
+    const tasks = readWorkspace(this.root).tasks.filter(task => !taskIds || taskIds.has(task.taskId));
     this.indexState.total = tasks.length; this.onChange();
     for (const task of tasks) {
       if (this.paused) { this.indexState.error = '索引已暂停，剩余历史未完成重建'; break; }
+      this.attempted.set(task.taskId, taskRevision(task));
       const items: SearchTextRecord[] = [];
       let partialReason: string | null = null;
       try {
+        if (!task.threadId && task.executionState !== 'idle') throw new Error('会话尚无可核验的历史绑定，不能标记为已覆盖');
         if (task.threadId) {
           const history = await this.readHistory({ taskId: task.taskId });
           if (history.taskId !== task.taskId || history.threadId !== task.threadId) throw new Error('索引历史归属不一致，保留原索引');

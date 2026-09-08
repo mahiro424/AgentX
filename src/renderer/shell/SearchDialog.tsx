@@ -24,6 +24,8 @@ export function SearchDialog({ open, projects, onClose, onOpen }: { open: boolea
   const [snapshot, setSnapshot] = useState<TaskSearchSnapshot | null>(null);
   const [loading, setLoading] = useState(false), [error, setError] = useState(''), [openingId, setOpeningId] = useState<string | null>(null);
   const [active, setActive] = useState(0);
+  const snapshotRef = useRef(snapshot), activeRef = useRef(active), snapshotQuery = useRef('');
+  snapshotRef.current = snapshot; activeRef.current = active;
   const [indexState, setIndexState] = useState<SearchIndexState | null>(null), [indexError, setIndexError] = useState('');
   const rebuilding = useRef(false);
   const restoring = useRef(false);
@@ -40,12 +42,24 @@ export function SearchDialog({ open, projects, onClose, onOpen }: { open: boolea
     }
   }, [open]);
 
-  async function query() {
+  async function query(background = false) {
     const current = ++sequence.current;
-    setLoading(true); setError('');
+    const queryKey = JSON.stringify(currentRequest.current);
+    if (!background) setLoading(true);
+    setError('');
     try {
       const value = await window.agentx.searchTasks(currentRequest.current);
-      if (current === sequence.current) { setSnapshot(value); setActive(0); }
+      if (current === sequence.current) {
+        const previous = snapshotRef.current;
+        if (background && previous && snapshotQuery.current === queryKey) {
+          // 后台流式索引只能更新内容；保持已出现行的顺序和用户正在操作的会话。
+          const priorOrder = new Map(previous.results.map((result, index) => [result.taskId, index]));
+          const selectedId = previous.results[activeRef.current]?.taskId;
+          value.results.sort((a, b) => (priorOrder.get(a.taskId) ?? Infinity) - (priorOrder.get(b.taskId) ?? Infinity));
+          setActive(Math.max(0, value.results.findIndex(result => result.taskId === selectedId)));
+        } else setActive(0);
+        snapshotQuery.current = queryKey; setSnapshot(value);
+      }
     } catch (cause) {
       if (current === sequence.current) setError(cause instanceof Error ? cause.message : '搜索失败，查询与已有结果仍保留');
     } finally { if (current === sequence.current) setLoading(false); }
@@ -53,7 +67,7 @@ export function SearchDialog({ open, projects, onClose, onOpen }: { open: boolea
   useEffect(() => {
     if (!open) return;
     void query();
-    const unsubscribe = window.agentx.onWorkspaceChanged(() => void query());
+    const unsubscribe = window.agentx.onWorkspaceChanged(() => void query(true));
     return () => { sequence.current++; unsubscribe(); };
   }, [open, request]);
   useEffect(() => {
@@ -67,7 +81,7 @@ export function SearchDialog({ open, projects, onClose, onOpen }: { open: boolea
       } catch (cause) { if (!cancelled && revision === current) setIndexError(cause instanceof Error ? cause.message : '索引进度读取失败'); }
     };
     void refresh();
-    const unsubscribe = window.agentx.onSearchIndexChanged(() => { void refresh(); void query(); });
+    const unsubscribe = window.agentx.onSearchIndexChanged(() => { void refresh(); void query(true); });
     return () => { cancelled = true; unsubscribe(); };
   }, [open, request]);
   async function rebuild() {
@@ -147,6 +161,7 @@ export function SearchDialog({ open, projects, onClose, onOpen }: { open: boolea
       <div className="search-index-actions">{indexState?.running ? <span role="status">正在建立索引 {indexState.processed}/{indexState.total} · 当前结果可能不完整</span> : <span>正文索引来自可见历史</span>}
         <button className="diagnostic-button" disabled={indexState?.running || !!openingId} onClick={() => void rebuild()}>重建索引</button></div>
       {(indexError || indexState?.error) && <p role="alert" className="error-message">{indexError || indexState?.error}</p>}
+      {indexState?.notice && <p role="status">{indexState.notice}</p>}
       {snapshot && <details><summary>已覆盖 {snapshot.coverage.coveredTasks}/{snapshot.coverage.totalTasks} 个会话{snapshot.coverage.issues.length ? ' · 当前结果可能不完整' : ''}</summary>
         {snapshot.coverage.issues.map(issue => <p key={issue.taskId}>{issue.title}：{issue.reason}</p>)}</details>}
     </div>

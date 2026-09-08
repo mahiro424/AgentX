@@ -5,7 +5,7 @@ export const TASK_SEARCH_LOCATE_CHANNEL = 'agentx:task-search-locate';
 export const SEARCH_INDEX_READ_CHANNEL = 'agentx:search-index-read';
 export const SEARCH_INDEX_REBUILD_CHANNEL = 'agentx:search-index-rebuild';
 export const SEARCH_INDEX_CHANGED_CHANNEL = 'agentx:search-index-changed';
-export interface SearchIndexState { running: boolean; processed: number; total: number; error: string | null }
+export interface SearchIndexState { running: boolean; processed: number; total: number; error: string | null; notice?: string }
 
 export interface TaskSearchRequest {
   query: string;

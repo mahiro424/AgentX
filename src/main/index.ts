@@ -46,13 +46,15 @@ function showWindow(): void {
 }
 const models = new ModelService(dataRoot);
 const execution = new ExecutionService(dataRoot, app.isPackaged ? process.resourcesPath : path.join(app.getAppPath(), '.cache'), models, () => {
+  const task = execution.read().task;
+  if (task) search.refreshTask(task.taskId);
   if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.getURL() === mainWindowURL) {
     mainWindow.webContents.send(EXECUTION_CHANGED_CHANNEL);
     mainWindow.webContents.send(WORKSPACE_CHANGED_CHANNEL);
   }
 });
 const projects = new ProjectService(dataRoot, () => execution.read().task, taskId => execution.prepareTaskArchive(taskId));
-const search = new TaskSearchService(dataRoot, request => execution.readHistory(request), () => {
+const search = new TaskSearchService(dataRoot, request => execution.readSearchHistory(request), () => {
   if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.getURL() === mainWindowURL) mainWindow.webContents.send(SEARCH_INDEX_CHANGED_CHANNEL);
 });
 let modelSettingsVisible = false;
@@ -212,6 +214,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     ipcMain.handle(SEARCH_INDEX_READ_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 0);
+      search.ensureIndex();
       return search.getIndexState();
     });
     ipcMain.handle(SEARCH_INDEX_REBUILD_CHANNEL, (event, ...args) => {

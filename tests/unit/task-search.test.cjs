@@ -69,6 +69,25 @@ test('搜索隐私：只投影可见字段，剔除已识别密钥与认证头�
   assert.deepEqual(f.readWorkspace(f.root), f.before);
 });
 
+test('搜索缓存归属：拒绝目录链接和数据库硬链接，查询与重建均不改变外部缓存', async () => {
+  for (const mode of ['directory', 'hardlink']) {
+    const f = await fixture(), external = await fixture();
+    await external.service.rebuild();
+    const externalCache = path.join(external.root, 'cache'), externalFile = path.join(externalCache, 'search.sqlite');
+    const before = await fs.readFile(externalFile);
+    if (mode === 'directory') await fs.symlink(externalCache, path.join(f.root, 'cache'), 'junction');
+    else {
+      await fs.mkdir(path.join(f.root, 'cache'));
+      await fs.link(externalFile, path.join(f.root, 'cache', 'search.sqlite'));
+    }
+    await assert.rejects(f.service.query({ query: '季度收入', scope: 'body', projectId: null, includeArchived: false }), /缓存|索引/);
+    await assert.rejects(f.service.rebuild(), /缓存|索引/);
+    assert.deepEqual(await fs.readFile(externalFile), before, `${mode} 不得写入外部目标`);
+    assert.deepEqual(f.readWorkspace(f.root), f.before);
+    assert.equal(f.calls.length, 0, '缓存路径未通过核验时不启动原历史读取');
+  }
+});
+
 test('源历史缺失：重建保留旧命中但明确不可定位与部分覆盖，恢复后显式重试才能更新', async () => {
   const f = await fixture(); await f.service.rebuild();
   const request = { query: '季度收入', scope: 'body', projectId: null, includeArchived: false };
@@ -84,6 +103,47 @@ test('源历史缺失：重建保留旧命中但明确不可定位与部分覆�
   assert.deepEqual(await reopened.query(request), result);
   await reopened.rebuild();
   assert.deepEqual(await reopened.query(request), before);
+  assert.deepEqual(f.readWorkspace(f.root), f.before);
+});
+
+test('损坏索引恢复：查询先报错，显式重建保留损坏文件并恢复真实来源，不改产品数据', async () => {
+  const f = await fixture(); await f.service.rebuild();
+  const cache = path.join(f.root, 'cache'), file = path.join(cache, 'search.sqlite');
+  const damaged = Buffer.from('合成损坏的搜索索引，必须保留诊断证据');
+  const productBefore = await fs.readFile(path.join(f.root, 'agentx.db'));
+  await fs.writeFile(file, damaged);
+  const request = { query: '季度收入', scope: 'body', projectId: null, includeArchived: false };
+  await assert.rejects(f.service.query(request), /索引/);
+  assert.deepEqual(await fs.readFile(file), damaged, '读取失败不能偷偷清库');
+  await f.service.rebuild();
+  const result = await f.service.query(request);
+  assert.equal(result.results.length, 1); assert.equal(result.coverage.coveredTasks, 1);
+  const source = result.results[0].source;
+  assert.equal((await f.service.locate({ taskId: f.task.taskId, ...source })).source.itemId, 'user-1');
+  assert.match(f.service.getIndexState().notice, /损坏.*保留/);
+  const preserved = (await fs.readdir(cache)).filter(name => /^search\.damaged-.*\.sqlite$/.test(name));
+  assert.equal(preserved.length, 1); assert.deepEqual(await fs.readFile(path.join(cache, preserved[0])), damaged);
+  assert.deepEqual(await fs.readFile(path.join(f.root, 'agentx.db')), productBefore);
+  assert.deepEqual(f.readWorkspace(f.root), f.before);
+});
+
+test('索引结构缺失：已知版本缺少表时可显式重建，未知版本和独占锁不得触发替换', async () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const f = await fixture(); await f.service.rebuild();
+  const file = path.join(f.root, 'cache', 'search.sqlite');
+  let db = new DatabaseSync(file); db.exec('DROP TABLE search_items'); db.close();
+  await f.service.rebuild();
+  assert.equal((await f.service.query({ query: '季度收入', scope: 'body', projectId: null, includeArchived: false })).results.length, 1);
+  const preserved = () => fs.readdir(path.join(f.root, 'cache'));
+  const beforeFiles = await preserved();
+  db = new DatabaseSync(file); db.exec('PRAGMA user_version=99'); db.close();
+  const future = await fs.readFile(file);
+  await assert.rejects(f.service.rebuild(), /核验|版本|索引/);
+  assert.deepEqual(await fs.readFile(file), future); assert.deepEqual(await preserved(), beforeFiles);
+  db = new DatabaseSync(file); db.exec('PRAGMA user_version=1; BEGIN EXCLUSIVE');
+  try { await assert.rejects(f.service.rebuild(), /核验|索引/); }
+  finally { db.exec('ROLLBACK'); db.close(); }
+  assert.deepEqual(await preserved(), beforeFiles);
   assert.deepEqual(f.readWorkspace(f.root), f.before);
 });
 
@@ -157,6 +217,34 @@ test('索引重建：重复请求复用同一次只读工作，覆盖进度可�
   finish(); await next;
   assert.deepEqual(service.getIndexState(), { running: false, processed: 2, total: 2, error: null });
   assert.equal((await service.query({ query: '', scope: 'all', projectId: null, includeArchived: false })).coverage.coveredTasks, 2);
+});
+
+test('索引自动补齐：首次打开补齐缺口，当前轮更新合并读取且重开可搜，不修改会话活动时间', async t => {
+  const f = await fixture();
+  let notifications = 0;
+  const service = new f.TaskSearchService(f.root, async request => { f.calls.push(request); return structuredClone(f.history); }, () => { notifications++; });
+  t.after(() => service.pause());
+  const request = { query: '新到达中文消息', scope: 'body', projectId: null, includeArchived: false };
+  const waitIndexed = async predicate => {
+    const end = Date.now() + 5000;
+    while (!predicate()) { assert.ok(Date.now() < end, '自动索引未及时完成'); await new Promise(resolve => setTimeout(resolve, 20)); }
+  };
+  service.ensureIndex(); service.ensureIndex();
+  await waitIndexed(() => f.calls.length === 1 && !service.getIndexState().running);
+  assert.equal((await service.query(request)).coverage.coveredTasks, 1);
+  f.history.turns[0].items.push({ kind: 'message', threadId: f.task.threadId, turnId: f.task.turnId, itemId: 'new-visible-item', text: request.query, status: 'running', phase: 'commentary' });
+  for (let count = 0; count < 10; count++) service.refreshTask(f.task.taskId);
+  await waitIndexed(() => f.calls.length === 2 && !service.getIndexState().running);
+  const result = await service.query(request);
+  assert.equal(result.results[0].source.itemId, 'new-visible-item');
+  assert.deepEqual(f.readWorkspace(f.root), f.before);
+  const reopened = new f.TaskSearchService(f.root, async () => assert.fail('已有覆盖不重新读取'));
+  reopened.ensureIndex();
+  assert.deepEqual(await reopened.query(request), result);
+  assert.ok(notifications >= 2);
+  service.refreshTask(f.task.taskId); await service.pause();
+  await new Promise(resolve => setTimeout(resolve, 1100));
+  assert.equal(f.calls.length, 2, '退出必须取消尚未派发的索引更新');
 });
 
 test('字面高亮：中文、ASCII 大小写、标点与 emoji 一致，片段内重复命中全部标记', async () => {

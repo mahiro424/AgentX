@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import type { TaskSearchTarget } from '../../shared/contracts/search';
 
@@ -9,12 +10,75 @@ export interface SearchTextRecord {
 }
 export interface SearchTaskCoverage { taskId: string; taskRevision: string; indexedAt: string | null; error: string | null; partialReason: string | null }
 
+export function validateSearchCache(root: string): string {
+  const base = fs.realpathSync(root), directory = path.join(base, 'cache');
+  const inspect = (file: string) => {
+    try { return fs.lstatSync(file); }
+    catch (cause) { if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return null; throw cause; }
+  };
+  const folder = inspect(directory);
+  if (folder && (!folder.isDirectory() || folder.isSymbolicLink())) throw new Error('搜索缓存目录不是应用自有的普通目录');
+  fs.mkdirSync(directory, { recursive: true });
+  if (fs.realpathSync(directory) !== directory) throw new Error('搜索缓存目录发生重定向，已拒绝访问');
+  const file = path.join(directory, 'search.sqlite');
+  // SQLite 也会访问日志和共享内存；它们不能成为写入其他文件的链接入口。
+  for (const candidate of [file, `${file}-journal`, `${file}-wal`, `${file}-shm`]) {
+    const info = inspect(candidate);
+    if (info && (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1)) throw new Error('搜索缓存文件存在链接或类型异常，已拒绝访问');
+  }
+  return file;
+}
+
+// 只在用户显式重建时处理已确认损坏；权限、锁定和未知版本失败不能触发替换。
+export function preserveDamagedSearchCache(root: string): boolean {
+  const file = validateSearchCache(root);
+  if (!fs.existsSync(file)) return false;
+  let database: DatabaseSync | undefined, damaged = false;
+  try {
+    database = new DatabaseSync(file, { readOnly: true });
+    const version = database.prepare('PRAGMA user_version').get()?.user_version;
+    if (version !== 0 && version !== 1) throw new Error('搜索索引版本不受支持，未替换原文件');
+    damaged = database.prepare('PRAGMA quick_check').all().some(row => row.quick_check !== 'ok');
+    if (!damaged && version === 1) {
+      try {
+        database.prepare('SELECT task_id, thread_id, turn_id, item_id, kind, visible_text, source_revision, ordinal, indexed_at FROM search_items LIMIT 0').all();
+        database.prepare('SELECT task_id, task_revision, indexed_at, error, partial_reason FROM search_coverage LIMIT 0').all();
+      } catch (cause) {
+        // 这些固定语句在 v1 必须成立；仅缺失表/列的 SQL 错误视为已知结构损坏。
+        if ((cause as { errcode?: number }).errcode === 1) damaged = true;
+        else throw cause;
+      }
+    }
+  } catch (cause) {
+    const code = (cause as { errcode?: number }).errcode;
+    if (typeof code === 'number' && [11, 26].includes(code & 255)) damaged = true;
+    else throw new Error(`无法核验搜索索引，原文件未替换${typeof code === 'number' ? `（SQLite ${code}）` : ''}`);
+  } finally { database?.close(); }
+  if (!damaged) return false;
+  validateSearchCache(root);
+  const preserved = path.join(path.dirname(file), `search.damaged-${randomUUID()}.sqlite`);
+  const moved: [string, string][] = [];
+  try {
+    for (const suffix of ['', '-journal', '-wal', '-shm']) {
+      const source = `${file}${suffix}`, target = `${preserved}${suffix}`;
+      if (path.dirname(target) !== path.dirname(file) || fs.existsSync(target)) throw new Error('损坏索引保留位置无效');
+      if (!fs.existsSync(source)) continue;
+      fs.renameSync(source, target); moved.push([source, target]);
+    }
+  } catch {
+    let restored = true;
+    for (const [source, target] of moved.reverse()) {
+      try { fs.renameSync(target, source); } catch { restored = false; }
+    }
+    throw new Error(restored ? '损坏索引保留失败，已恢复原位置；未开始重建' : '损坏索引保留失败，部分文件仍在缓存内的保留位置；请核对，未开始重建');
+  }
+  return true;
+}
+
 function withSearchDatabase<T>(root: string, action: (database: DatabaseSync) => T): T {
   let database: DatabaseSync | undefined;
   try {
-    const directory = path.join(root, 'cache');
-    fs.mkdirSync(directory, { recursive: true });
-    database = new DatabaseSync(path.join(directory, 'search.sqlite'));
+    database = new DatabaseSync(validateSearchCache(root));
     const version = database.prepare('PRAGMA user_version').get()?.user_version;
     if (version !== 0 && version !== 1) throw new Error('搜索索引版本不受支持');
     if (version === 0) {

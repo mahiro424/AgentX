@@ -53,19 +53,52 @@ export class ExecutionService {
   }
 
   async readHistory(input: unknown): Promise<TaskHistory> {
+    return this.loadHistory(input, false);
+  }
+
+  // 搜索只读本实例仍绑定的活动轮；不放宽恢复/结果检查的已结束门禁。
+  async readSearchHistory(input: unknown): Promise<TaskHistory> {
+    return this.loadHistory(input, true);
+  }
+
+  private async loadHistory(input: unknown, allowCurrent: boolean): Promise<TaskHistory> {
     if (this.closing) throw new Error('应用正在退出，不能读取历史');
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 1 ||
         !('taskId' in input) || typeof input.taskId !== 'string' || !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(input.taskId)) throw new Error('历史读取请求无效');
     const task = readWorkspace(this.root).tasks.find(value => value.taskId === input.taskId);
     if (!task) throw new Error('任务不存在，无法读取历史');
-    if (!task.threadId || !task.turnId || !['completed', 'failed', 'interrupted'].includes(task.executionState)) throw new Error('本阶段仅能读取已结束轮次；未决任务须先核对状态');
+    const ended = ['completed', 'failed', 'interrupted'].includes(task.executionState);
+    const current = allowCurrent && !this.preparing && !this.error && !!this.runtime &&
+      this.current?.taskId === task.taskId && ['running', 'waitingApproval', 'waitingInput', 'stopping'].includes(task.executionState);
+    if (!task.threadId || !task.turnId || (!ended && !current)) throw new Error('本阶段仅能读取已结束轮次或本实例绑定的活动轮；未决任务须先核对状态');
+    const ownedRuntime = this.runtime;
+    const ownedSession = this.current?.session;
     const load = async (): Promise<TaskHistory> => {
       const read = async (transport: CodexTransport) => {
         const history = await readThreadHistory(transport, task.threadId!, task.directory);
         const latest = history.turns.find(turn => turn.turnId === task.turnId);
         if (!latest) throw new Error('历史缺少产品记录的轮次，不能显示为空会话');
-        if (latest.status !== task.executionState || history.turns.some(turn => turn.status === 'inProgress')) {
+        if (ended ? latest.status !== task.executionState || history.turns.some(turn => turn.status === 'inProgress')
+          : latest.status !== 'inProgress' || history.turns.some(turn => turn.status === 'inProgress' && turn.turnId !== task.turnId)) {
           throw new Error('历史与产品记录的轮次状态不一致，需核对；不会自动重发任务');
+        }
+        if (current) {
+          const now = readWorkspace(this.root).tasks.find(value => value.taskId === task.taskId);
+          if (this.runtime !== ownedRuntime || this.current?.session !== ownedSession || this.current?.taskId !== task.taskId || this.error || !now ||
+              now.threadId !== task.threadId || now.turnId !== task.turnId || !['running', 'waitingApproval', 'waitingInput', 'stopping'].includes(now.executionState)) {
+            throw new Error('读取期间活动轮绑定已变化，请重新核对');
+          }
+          // 公开历史可能滞后于输出事件；只为当前搜索投影补入同一 owner 的已验证可见项。
+          // 用户项 ID 仍取自公开历史，不用发送意图伪造；结束历史不走此合并路径。
+          const items = new Map(latest.items.map(item => [item.itemId, item]));
+          for (const item of ownedSession!.readItems()) {
+            if (item.threadId !== task.threadId || item.turnId !== task.turnId ||
+                (items.has(item.itemId) && items.get(item.itemId)!.kind !== item.kind)) {
+              throw new Error('活动搜索项来源不一致，请核对状态');
+            }
+            items.set(item.itemId, item);
+          }
+          latest.items = [...items.values()];
         }
         return { taskId: task.taskId, ...history };
       };
