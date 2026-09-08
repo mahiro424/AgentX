@@ -7,11 +7,11 @@ export function withDatabase<T>(root: string, action: (database: DatabaseSync) =
   try {
     database = new DatabaseSync(path.join(root, 'agentx.db'));
     const version = database.prepare('PRAGMA user_version').get()?.user_version;
-    if (typeof version !== 'number' || !Number.isInteger(version) || version < 0 || version > 7) throw new Error('unsupported-version');
+    if (typeof version !== 'number' || !Number.isInteger(version) || version < 0 || version > 8) throw new Error('unsupported-version');
     if (version === 0 && database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").get()) throw new Error('unknown-schema');
     database.exec('PRAGMA foreign_keys=ON');
-    if (version < 7) {
-      if (version > 0) database.prepare('VACUUM INTO ?').run(path.join(root, `agentx.before-v7.${randomUUID()}.db`));
+    if (version < 8) {
+      if (version > 0) database.prepare('VACUUM INTO ?').run(path.join(root, `agentx.before-v8.${randomUUID()}.db`));
       database.exec('BEGIN IMMEDIATE');
     }
     if (version === 0) {
@@ -63,7 +63,12 @@ export function withDatabase<T>(root: string, action: (database: DatabaseSync) =
         task_id TEXT REFERENCES tasks(task_id), input_text TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision >= 1));
         PRAGMA user_version=7;`);
     }
-    if (version < 7) database.exec('COMMIT');
+    if (version < 8) {
+      database.exec(`ALTER TABLE execution_intents ADD COLUMN turn_id TEXT;
+        CREATE UNIQUE INDEX execution_intents_turn ON execution_intents(task_id, turn_id) WHERE turn_id IS NOT NULL;
+        PRAGMA user_version=8;`);
+      database.exec('COMMIT');
+    }
     return action(database);
   } catch (cause) {
     const code = (cause as { errcode?: number }).errcode;

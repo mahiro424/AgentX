@@ -10,6 +10,7 @@ import { ModelPicker } from './components/ModelPicker';
 import { useExecution } from './workbench/useExecution';
 import { useHistory } from './workbench/useHistory';
 import { HistoryTimeline } from './workbench/HistoryTimeline';
+import { ResultsPanel } from './workbench/ResultsPanel';
 import { useDraft } from './workbench/useDraft';
 import { ExecutionTimeline } from './workbench/ExecutionTimeline';
 import { taskStateLabel } from './shell/TaskStatus';
@@ -57,6 +58,10 @@ function App() {
   }
   const selectedProject = workspace.snapshot?.projects.find(project => project.projectId === workspace.selectedProjectId);
   const selectedTask = workspace.snapshot?.tasks.find(task => task.taskId === workspace.selectedTaskId);
+  const [resultsTask, setResultsTask] = useState<string | null>(null);
+  const resultsTrigger = useRef<HTMLButtonElement>(null);
+  const canInspect = !!selectedTask?.turnId && ['completed', 'failed', 'interrupted'].includes(selectedTask.executionState);
+  const resultsOpen = canInspect && resultsTask === selectedTask?.taskId;
   const history = useHistory(selectedTask && ['completed', 'failed', 'interrupted'].includes(selectedTask.executionState) ? selectedTask.taskId : null);
   const draftState = useDraft({ projectId: workspace.selectedProjectId, taskId: workspace.selectedTaskId });
   const draft = draftState.text, setDraft = draftState.setText;
@@ -232,10 +237,12 @@ function App() {
     </aside>}
     <div className="workspace">
       <header className="window-bar drag-region">{!sidebarOpen && <><button ref={sidebarToggle} className="icon-button" aria-label="展开侧栏" onClick={toggleSidebar}><PanelIcon /></button><button className="icon-button" aria-label="新会话" onClick={newSession}>＋</button><button className="icon-button" aria-label="设置" onClick={() => setView('settings')}><SettingsIcon /></button></>}</header>
-      <main className={`welcome${selectedTask || currentExecution?.task ? ' execution-workbench' : ''}`} hidden={view !== 'workbench'}>
+      <div className={`workbench-layout${resultsOpen ? ' has-results' : ''}`} hidden={view !== 'workbench'}>
+      <main className={`welcome${selectedTask || currentExecution?.task ? ' execution-workbench' : ''}`}>
         <div className="welcome-heading">
           <h1 title={selectedTask?.title}>{selectedTask?.title ?? '今天想完成什么工作？'}</h1>
           <p>{currentState ? currentState === 'stopping' ? '正在停止，等待引擎确认…' : taskStateLabel[currentState] : selectedTask ? taskStateLabel[selectedTask.executionState] : '用自然语言描述目标，在这里开始工作。'}</p>
+          {canInspect && <button ref={resultsTrigger} className="secondary-button inspect-results" aria-label="查看文件改动" aria-expanded={resultsOpen} onClick={() => setResultsTask(selectedTask!.taskId)}>查看文件改动</button>}
         </div>
         {history.loading && <p role="status" className="muted">正在读取会话历史…</p>}
         {history.error && <p role="alert" className="error-message">历史读取失败：{history.error} <button className="secondary-button" onClick={() => void history.load()}>重新读取历史</button></p>}
@@ -297,6 +304,9 @@ function App() {
           workspace.setSelectedProjectId(busyTask.projectId); workspace.setSelectedTaskId(busyTask.taskId);
         }}>查看活动或待核对任务</button>}
       </main>
+      {resultsOpen && selectedTask?.turnId && <ResultsPanel key={`${selectedTask.taskId}:${selectedTask.turnId}`} taskId={selectedTask.taskId} turnId={selectedTask.turnId}
+        onClose={() => { setResultsTask(null); resultsTrigger.current?.focus(); }} />}
+      </div>
       <main className="settings" hidden={view !== 'settings'}>
         <header className="settings-header"><h1>设置</h1><button className="secondary-button" onClick={openWorkbench}>返回工作台</button></header>
         <div className="settings-layout">

@@ -1,5 +1,6 @@
 import { PROJECT_RENAME_CHANNEL, type ProjectRename, type ProjectRecord, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, type ProjectOperation, type ProjectChoice, WORKSPACE_READ_CHANNEL, type WorkspaceSnapshot } from '../shared/contracts/projects';
 import { contextBridge, ipcRenderer } from 'electron';
+import { TASK_RESULTS_READ_CHANNEL, type TaskResults, type TaskResultsRequest } from '../shared/contracts/results';
 import { TASK_HISTORY_READ_CHANNEL, type TaskHistory, type TaskHistoryRequest } from '../shared/contracts/history';
 import { DRAFT_READ_CHANNEL, DRAFT_SAVE_CHANNEL, type DraftScope, type DraftRecord, type DraftSave } from '../shared/contracts/drafts';
 import { EXECUTION_READ_CHANNEL, EXECUTION_START_CHANNEL, EXECUTION_STOP_CHANNEL, EXECUTION_CHANGED_CHANNEL, type ExecutionStart, type ExecutionControl, type ExecutionSnapshot } from '../shared/contracts/execution';
@@ -9,6 +10,7 @@ import { APP_INFO_CHANNEL, PREFERENCES_READ_CHANNEL, PREFERENCES_SAVE_CHANNEL, t
 import { MODEL_SETTINGS_CHANGED_CHANNEL, MODEL_TEST_CHANNEL, type ModelTestRequest, MODEL_SETTINGS_READ_CHANNEL, MODEL_KEY_SAVE_CHANNEL, MODEL_KEY_REVEAL_CHANNEL, MODEL_SETTINGS_VISIBLE_CHANNEL, MODEL_ENABLED_CHANNEL, MODEL_CATALOG_FETCH_CHANNEL, MODEL_SELECTION_CHANNEL, MODEL_ACTIVE_CHANNEL, type ModelSelectionChange, type ActiveModelChange, type ConnectionChange, type KeySubmission, type ModelOperation, type ModelSettings } from '../shared/contracts/models';
 
 const bridge: AgentXBridge = Object.freeze({
+  getTaskResults: (value: TaskResultsRequest): Promise<TaskResults> => ipcRenderer.invoke(TASK_RESULTS_READ_CHANNEL, value),
   getTaskHistory: (value: TaskHistoryRequest): Promise<TaskHistory> => ipcRenderer.invoke(TASK_HISTORY_READ_CHANNEL, value),
   getDraft: (value: DraftScope): Promise<DraftRecord> => ipcRenderer.invoke(DRAFT_READ_CHANNEL, value),
   saveDraft: (value: DraftSave): Promise<DraftRecord> => ipcRenderer.invoke(DRAFT_SAVE_CHANNEL, value),
