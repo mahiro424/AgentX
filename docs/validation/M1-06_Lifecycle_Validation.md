@@ -53,3 +53,5 @@
 - `25-exit-full-tests.log`：**170/170**，247713.6087 ms，无人工介入清理，无模型调用；这是有效的全量回归，不用前次被介入的 `23` 替代。
 - `17-exit-ui-typecheck.log` 类型检查通过，`18-exit-validation-package.log` 打包通过；已更新 `E:\AgentX\desktop\out\AgentX-win32-x64`，全量测试使用该真实包。
 - `git diff --check` 通过。此处仅确认上述增量；#11 仍开放，持久化归属、异常历史核对和真实运行中退出未完成，尚不发起该切片合并。
+
+首次远程 CI `34231885786` 失败：4 个新退出服务用例的 fixture 假设本机已有 `.local-validation/m1-06`，干净检出中 `mkdtemp` 返回 ENOENT，并非实际退出行为失败。`28-clean-fixture-red.log` 在全新工作目录复现 0/4；补齐 fixture 的父目录创建后，`29-clean-fixture-green.log` 同环境 4/4。不改生产代码、不上传本地缓存来掩盖问题，修正后重新运行远程完整门禁。

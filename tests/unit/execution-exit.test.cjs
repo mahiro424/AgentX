@@ -11,6 +11,7 @@ async function fixture(t, terminals = [], beforeClose = async () => {}) {
   const { CodexTransport } = require('../../src/main/runtime/codex/transport.ts');
   const { ExecutionService } = require('../../src/main/services/execution.ts');
   const { associateProject } = require('../../src/main/storage/projects.ts');
+  await fs.mkdir(path.resolve('.local-validation/m1-06'), { recursive: true });
   const root = await fs.mkdtemp(path.resolve('.local-validation/m1-06/execution-exit-'));
   const project = associateProject(root, root).project;
   const input = new PassThrough(), output = new PassThrough(), calls = [];
