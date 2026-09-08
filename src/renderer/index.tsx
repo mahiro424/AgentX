@@ -3,6 +3,7 @@ import { ExitDialog } from './shell/ExitDialog';
 import { useWorkspace } from './shell/useWorkspace';
 import { FolderIcon, ProjectSidebar } from './shell/ProjectSidebar';
 import { createRoot } from 'react-dom/client';
+import { flushSync } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import type { AppInfo, Preferences } from '../shared/contracts/app';
 import './styles.css';
@@ -297,11 +298,11 @@ function App() {
                 event.preventDefault();
                 const textarea = event.currentTarget;
                 const start = textarea.selectionStart, end = textarea.selectionEnd;
+                const text = textarea.value;
                 draftRevision.current++;
-                setDraft(`${draft.slice(0, start)}\n${draft.slice(end)}`);
-                requestAnimationFrame(() => {
-                  if (document.activeElement === textarea) textarea.setSelectionRange(start + 1, start + 1);
-                });
+                // 换行和光标属于同一次按键；延迟到下一帧会覆盖用户后来的输入或选择。
+                flushSync(() => setDraft(`${text.slice(0, start)}\n${text.slice(end)}`));
+                textarea.setSelectionRange(start + 1, start + 1);
                 return;
               }
               if (event.shiftKey || event.altKey || event.metaKey) return;

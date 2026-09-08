@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [m1, m2]
   push:
-    branches: [m1, m1-docs, m1-design, m2, m2-docs, m2-01, m2-02, m2-03, m2-04, m2-05]
+    branches: [m1, m1-docs, m1-design, m2, m2-ci-fix, m2-docs, m2-01, m2-02, m2-03, m2-04, m2-05]
 
 permissions:
   contents: read

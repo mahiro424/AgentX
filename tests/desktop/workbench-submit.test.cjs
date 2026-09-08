@@ -84,3 +84,51 @@ for (const navigateAway of [false, true]) test(`首次发送：${navigateAway ? 
   assert.equal(requests[1].text, '修复合成项目');
   assert.notEqual(requests[0].operationId, requests[1].operationId);
 });
+
+test('草稿换行：动画帧延迟时下一按键仍插在换行之后', { timeout: 30000 }, async t => {
+  const { app, page } = await launch(); t.after(() => crashTestApp(app));
+  const draft = page.getByRole('textbox', { name: '任务要求' });
+  await draft.fill('前选中后');
+  await draft.evaluate(element => element.setSelectionRange(1, 3));
+  await delayInputFrames(page);
+  try {
+    await draft.press('Control+Enter');
+    await draft.press('A');
+    assert.equal(await draft.inputValue(), '前\nA后');
+  } finally { await page.evaluate(() => globalThis.restoreInputFrames()); }
+});
+
+test('草稿换行：后来的全选不被旧帧覆盖，替换内容重开仍保留', { timeout: 90000 }, async () => {
+  let { app, page, data } = await launch();
+  try {
+    const draft = page.getByRole('textbox', { name: '任务要求' });
+    await draft.fill('换行前的要求');
+    await delayInputFrames(page);
+    try {
+      await draft.press('Control+Enter');
+      await draft.press('Control+A');
+    } finally { await page.evaluate(() => globalThis.restoreInputFrames()); }
+    await page.keyboard.insertText('替换后的要求');
+    assert.equal(await draft.inputValue(), '替换后的要求');
+    await page.waitForFunction(async () => (await window.agentx.getDraft({ projectId: null, taskId: null })).text === '替换后的要求');
+    assert.equal((await page.evaluate(() => window.agentx.getWorkspace())).tasks.length, 0);
+    await app.close();
+    ({ app, page } = await launch(data));
+    await page.waitForFunction(() => document.querySelector('#task-draft').value === '替换后的要求');
+    assert.equal((await page.evaluate(() => window.agentx.getWorkspace())).tasks.length, 0);
+  } finally { await app.close(); }
+});
+
+async function delayInputFrames(page) {
+  await page.evaluate(() => {
+    // 延迟浏览器动画帧，仍用真实键盘输入；不能让帧等待掩盖下一按键的错误位置。
+    const original = requestAnimationFrame;
+    const frames = [];
+    globalThis.requestAnimationFrame = callback => frames.push(callback);
+    globalThis.restoreInputFrames = () => {
+      globalThis.requestAnimationFrame = original;
+      for (const frame of frames) frame(performance.now());
+      delete globalThis.restoreInputFrames;
+    };
+  });
+}
