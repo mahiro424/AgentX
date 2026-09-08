@@ -1,6 +1,6 @@
 # AgentX 整体架构与技术设计 v0.3
 
-日期：2026-09-08。状态：V1 架构方向与 M1 计划已批准。M1-01 至 M1-05 已完成切片检查并合入 m1，M1-05 对应 PR #18 / Issue #10 已闭环；M1-06 在独立分支接通托盘、退出确认、进程归属持久化及只读异常核对，真实退出和崩溃后不重发验收已通过，待切片 PR/CI 集成。master 不变。G0/G1 脚本不是生产适配器；[G1 核心报告](../validation/AgentX_Compatibility_Evidence.md#evidence-g1)仅证明已测范围，首轮失败记录不改写。
+日期：2026-09-09。状态：V1 架构方向与 M1 计划已批准。M1-01 至 M1-05 已完成切片检查并合入 m1，M1-05 对应 PR #18 / Issue #10 已闭环；M1-06 接通托盘、退出确认、进程归属持久化及只读异常核对，真实退出和崩溃后不重发验收已通过，集成状态见 [PR #19](https://github.com/mahiro424/AgentX/pull/19)。master 不变。G0/G1 脚本不是生产适配器；[G1 核心报告](../validation/AgentX_Compatibility_Evidence.md#evidence-g1)仅证明已测范围，首轮失败记录不改写。
 
 产品行为以 [PRD](../prd/AgentX_Desktop_PRD.md) 为准；状态转换以[状态流转文档](AgentX_State_Machines.md) 为准；词汇沿用 [CONTEXT.md](../../CONTEXT.md)。本文件定义技术领域对象、进程、模块和数据边界，不向词汇表塞入框架和协议细节。
 

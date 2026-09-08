@@ -1,6 +1,6 @@
 # AgentX_Desktop_PRD
 
-版本：v0.3 / V1 基线与 M1 实施范围。基线日期：2026-09-07；进度更新：2026-09-08。V1 交互与 v0.3 采用图、M1 实施计划已批准。原版 Codex 0.153.4 + `deepseek-v4-flash` 已完成有限范围的真实工作验证，见[G1 核心报告](../validation/AgentX_Compatibility_Evidence.md#evidence-g1)；[首轮 G0 失败记录](../validation/AgentX_Compatibility_Evidence.md#evidence-g0-first)保留。文档、设计、M1-01 外框和 M1-02 模型设置已通过正式 Issue/PR/CI 合入 m1，用户已确认相应 UI，Renderer 不再为空。M1-03 项目与会话入口在独立分支实现及验证，本切片视觉已确认，待 CI 与集成；真实任务闭环仍未交付。各切片状态见[工单门禁](../plans/AgentX_M1_Issue_Gates.md)，不以本段进度更新改变既定 V1 范围。
+版本：v0.3 / V1 基线与 M1 实施范围。基线日期：2026-09-07；进度更新：2026-09-09。V1 交互与 v0.3 采用图、M1 实施计划已批准。原版 Codex 0.153.4 + `deepseek-v4-flash` 的前置验证见[G1 核心报告](../validation/AgentX_Compatibility_Evidence.md#evidence-g1)，[首轮 G0 失败记录](../validation/AgentX_Compatibility_Evidence.md#evidence-g0-first)保留。文档、设计与 M1-01 至 M1-05 已经正式工单/PR/CI 合入 m1；M1-06 生命周期和异常核对已通过本地全量与真实 Flash 验收，集成状态见 [PR #19](https://github.com/mahiro424/AgentX/pull/19)。交付与后续范围见 [M1 交付说明](../validation/AgentX_M1_Delivery.md)及[工单门禁](../plans/AgentX_M1_Issue_Gates.md)，不以进度更新改变既定 V1 范围。
 
 ## 问题陈述
 
@@ -511,7 +511,7 @@ M1 完成要求六个切片的功能与状态验收、无密钥 Windows CI、人
 | M1-AC-05 | 分别核对原生审批允许、拒绝和工具执行中停止的实际副作用；不是只看 UI | M1-04、M1-06 |
 | M1-AC-06 | 切页/托盘不停止；正常重开可读已结束任务；异常未决任务不自动执行第二次 | M1-05、M1-06 |
 
-最终产物是 Windows x64 M1 压缩包、真实界面截图、自动测试与现场验收记录、已合并工单链路和 V1 后续清单。安装器、签名、公开发布不作为本轮完成条件。当前上述 M1 产品验收均未执行，不将 G1 报告冒充现场验收。
+最终产物是 Windows x64 M1 压缩包、真实界面截图、自动测试与现场验收记录、已合并工单链路和 V1 后续清单。安装器、签名、公开发布不作为本轮完成条件。上述 M1 产品现场验收已有真实执行证据，逐项索引见 [M1 交付说明](../validation/AgentX_M1_Delivery.md)；不将前置 G1 或合成 UI 报告冒充现场验收，最终集成以关联 PR 的实际检查/合并状态为准。
 
 ### ACCEPTANCE-V01
 
