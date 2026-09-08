@@ -4,6 +4,8 @@
 
 ## 阅读顺序与唯一权威来源
 
+M2 已获实施及仅合入 `m2` 的授权，五个切片正在建立正式门禁，尚未实现。见 [M2 实施计划](plans/AgentX_M2_Implementation_Plan.md)和[M2 工单门禁](plans/AgentX_M2_Issue_Gates.md)。原 M1 记录保留，不以新分期改写历史证据。
+
 | 顺序 | 文档 | 回答的问题 |
 | --- | --- | --- |
 | 1 | [AgentX_Desktop_PRD](prd/AgentX_Desktop_PRD.md) | 为谁做、做什么、页面怎样交互、怎样验收 |
