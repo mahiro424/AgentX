@@ -26,6 +26,7 @@ async function fixture(t) {
       const request = JSON.parse(bytes.toString()); sent.push(request);
       if (request.method === 'thread/start' || request.method === 'thread/resume') emit({ id: request.id, result: { ...metadata(), ...(controls.metadata ?? {}) } });
       else if (request.method === 'thread/read') emit({ id: request.id, result: { thread: { id: 'continue-thread', cwd: directory, turns: controls.missingHistory ? [] : turns } } });
+      else if (request.method === 'thread/backgroundTerminals/list') emit({ id: request.id, result: { data: controls.terminals ?? [], nextCursor: null } });
       else if (request.method === 'turn/start') {
         const turn = { id: `turn-${turns.length + 1}`, status: 'inProgress', items: [], itemsView: 'full' }; turns.push(turn);
         controls.beforeTurnReply?.({ request, turn, emit, transport });
@@ -34,7 +35,8 @@ async function fixture(t) {
       } else assert.fail(`未预期的方法：${request.method}`);
     });
     const transport = new CodexTransport(input, output, handlers);
-    return { transport, close: async () => { connection.closed = true; transport.close(); input.destroy(); output.destroy(); } };
+    return { transport, identity: { pid: 1234, parentPid: process.pid, createdAt: new Date().toISOString(), executablePath: path.join(root, 'synthetic-codex.exe') },
+      close: async () => { connection.closed = true; transport.close(); input.destroy(); output.destroy(); } };
   });
   const service = new ExecutionService(root, root, { captureExecution: async revision => {
     if (controls.captureError) throw new Error(controls.captureError);
@@ -64,6 +66,10 @@ test('nextTurn：同任务恢复原 thread，以新配置发送独立轮次并�
   assert.equal(second.title, f.first.title);
   assert.deepEqual(f.captures, [1, 2]);
   assert.equal(f.connections[0].closed, true);
+  const leases = require('../../src/main/storage/runtime-leases.ts').readRuntimeLeases(f.root);
+  assert.equal(leases.length, 2);
+  assert.equal(typeof leases.find(lease => lease.operationId === f.firstRequest.operationId).releasedAt, 'string');
+  assert.equal(leases.find(lease => lease.operationId === request.operationId).releasedAt, null);
   assert.equal(f.connections[1].options.environment.AGENTX_API_KEY, 'synthetic-key-2');
   assert.equal(f.sent.filter(request => request.method === 'thread/start').length, 1);
   assert.equal(f.sent.filter(request => request.method === 'thread/resume').length, 1);
@@ -160,4 +166,17 @@ test('nextTurn：事务拒绝重复意图后，原轮与任务关联不发生半
   assert.throws(() => store.beginTaskContinuation(f.root, previous, { ...store.readSubmissionIntent(f.root, f.firstRequest.operationId), text: '不应覆盖旧输入' }));
   assert.deepEqual(f.service.read().task, previous);
   assert.equal(store.readSubmissionIntent(f.root, f.firstRequest.operationId).text, '首次修复');
+});
+
+test('nextTurn：旧轮后台归属不明时保留原连接和归属记录，不启动替换引擎', async t => {
+  const f = await fixture(t); f.complete();
+  f.controls.terminals = [{ itemId: 'unobserved-command', processId: 'unknown-background' }];
+  const leases = require('../../src/main/storage/runtime-leases.ts');
+  const before = leases.readRuntimeLeases(f.root);
+  await assert.rejects(f.service.continue(f.nextRequest()), /后台.*归属|归属.*后台/);
+  assert.deepEqual(leases.readRuntimeLeases(f.root), before);
+  assert.equal(f.connections.length, 1);
+  assert.equal(f.connections[0].closed, false);
+  assert.equal(f.sent.filter(request => request.method === 'turn/start').length, 1);
+  assert.equal(f.sent.filter(request => request.method === 'thread/backgroundTerminals/terminate').length, 0);
 });

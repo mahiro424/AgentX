@@ -46,6 +46,7 @@ export interface ApprovalItem {
 }
 
 export interface ExecutionSnapshot {
+  reconciliationTaskIds?: string[];
   inputText?: string;
   plan?: ExecutionPlan;
   preparing: boolean;

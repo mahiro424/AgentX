@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { launch } = require('./helpers.cjs');
+const { launch, crashTestApp } = require('./helpers.cjs');
 
 async function chooseDirectory(app, page, directory) {
   await app.evaluate(({ dialog }, directory) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] }); }, directory);
@@ -253,7 +253,7 @@ test('M1-03 active：公开快照的运行与等待标记不同，更新观测�
 
 test('M1-03 inactive：持久化会话读取真实活动时间，打开不刷新；重开不伪称旧任务还在运行', { timeout: 90000 }, async t => {
   let current = await launch();
-  t.after(() => current.app.close());
+  t.after(() => crashTestApp(current.app));
   const directory = path.join(current.data, '历史项目'); await fs.mkdir(directory);
   await chooseDirectory(current.app, current.page, directory);
   const project = (await current.page.evaluate(() => window.agentx.getWorkspace())).projects[0];
@@ -274,7 +274,7 @@ test('M1-03 inactive：持久化会话读取真实活动时间，打开不刷新
   await row.click();
   await current.page.getByRole('heading', { name: '合成失败记录' }).waitFor();
   assert.deepEqual(await current.page.evaluate(() => window.agentx.getWorkspace()), before);
-  const data = current.data; await current.app.close(); current = await launch(data);
+  const data = current.data; await crashTestApp(current.app); current = await launch(data);
   const reopened = await current.page.evaluate(() => window.agentx.getWorkspace());
   assert.equal(reopened.tasks.find(value => value.title === '旧活动记录').executionState, 'reconciling');
   assert.equal(reopened.tasks.find(value => value.title === '合成失败记录').lastActivityAt, time);
@@ -284,7 +284,7 @@ test('M1-03 inactive：持久化会话读取真实活动时间，打开不刷新
 
 test('迁移失败：旧版模型数据先留一致性快照，失败整体回滚、不留下半次项目迁移', { timeout: 30000 }, async t => {
   const { app, page, data } = await launch();
-  t.after(() => app.close());
+  t.after(() => crashTestApp(app));
   await app.evaluate(({ app }) => {
     const { DatabaseSync } = process.getBuiltinModule('node:sqlite'), path = process.getBuiltinModule('node:path');
     const db = new DatabaseSync(path.join(app.getPath('userData'), 'agentx.db'));
@@ -304,12 +304,12 @@ test('迁移失败：旧版模型数据先留一致性快照，失败整体回�
     finally { db.close(); }
   });
   assert.deepEqual(result, { version: 3, hasProjects: false, catalog: '["synthetic-model"]' });
-  assert.ok((await fs.readdir(data)).some(name => /^agentx\.before-v8\..+\.db$/.test(name)));
+  assert.ok((await fs.readdir(data)).some(name => /^agentx\.before-v9\..+\.db$/.test(name)));
 });
 
 test('损坏记录：项目字段与会话目录关联损坏时报错，不隐藏或错误归组', { timeout: 30000 }, async t => {
   const { app, page, data } = await launch();
-  t.after(() => app.close());
+  t.after(() => crashTestApp(app));
   const directory = path.join(data, '损坏记录验证'); await fs.mkdir(directory);
   await chooseDirectory(app, page, directory);
   const project = (await page.evaluate(() => window.agentx.getWorkspace())).projects[0];
@@ -477,7 +477,7 @@ test('迁移成功：M1-02 模型记录与保存保护标记保留，备份能�
   assert.deepEqual(readCatalog(data), { modelIds: ['synthetic-model'], fetchedAt: '2026-09-01T00:00:00.000Z', configRevision: 7 });
   assert.equal(readModelTests(data)[0].error, '合成历史错误');
   assert.match(readKeySaveFailure(data, 'synthetic-reference'), /不会使用旧 Key/);
-  const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v8\..+\.db$/.test(name));
+  const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v9\..+\.db$/.test(name));
   assert.equal(backups.length, 1);
   const original = await app.evaluate((_electron, filename) => {
     const { DatabaseSync } = process.getBuiltinModule('node:sqlite');

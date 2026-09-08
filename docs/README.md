@@ -1,6 +1,6 @@
 # AgentX 文档入口
 
-更新日期：2026-09-08。V1 范围、视觉基线与 M1 实施计划已批准；原版 Codex App Server + DeepSeek Flash 已有有限真实工作证据。文档和设计基线已通过正式工单与 PR 合入 m1。当前在 m1-01 实现真实 Electron 外框、普通偏好与桌面验证，尚未接入项目、模型和 Agent 执行；完整 M1 未完成。
+更新日期：2026-09-09。文档、设计与 M1-01 至 M1-05 已通过正式工单/PR 合入 `m1`；外框、模型、项目、真实执行、结果和历史均已接通。M1-06 生命周期/异常核对已通过本地全量和真实 Flash 验收，集成状态见 [PR #19](https://github.com/mahiro424/AgentX/pull/19)。启动入口、压缩包、逐项证据及 V1 后续清单见 [M1 交付说明](validation/AgentX_M1_Delivery.md)。`master` 不变。
 
 ## 阅读顺序与唯一权威来源
 
@@ -16,15 +16,16 @@
 | 8 | [兼容性验证计划](plans/AgentX_Compatibility_Validation_Plan.md) | 已测证据的边界及各功能切片需验证的链路 |
 | 9 | [M1 实施计划](plans/AgentX_M1_Implementation_Plan.md) | 首个真实代码任务闭环的六个切片、范围、验证与授权 |
 | 10 | [M1 工单门禁](plans/AgentX_M1_Issue_Gates.md) | 父 PRD、Design、开发工单的发布顺序和真实进度；不是本地 ready 凭证 |
+| 11 | [M1 交付说明](validation/AgentX_M1_Delivery.md) | 如何启动、已测能力、验收证据、包体校验与后续范围 |
 
 [CONTEXT.md](../CONTEXT.md) 作为领域词汇表，与本轮取消产品验收状态的决定同步。PRD 不定义协议字段；架构文档不重复定义页面；状态文档是状态转换表的唯一维护位置；ADR 记录决定与理由，不复制架构全文。
 
 ## 状态说明
 
 - 已确认：通用桌面工作台范围、Windows 首版、本地档案、DeepSeek、Codex App Server 黑盒、默认零补丁、mockup-driven UI；工作台与设置两个主要界面，共用 app-shell。
-- 当前结果：[G1 核心兼容报告](validation/AgentX_Compatibility_Evidence.md#evidence-g1)；[首轮 G0 报告](validation/AgentX_Compatibility_Evidence.md#evidence-g0-first)保留历史失败，不代表最新脚本的复跑预期。
-- 图稿状态：用户已确认 V1，三个默认 [references](design/references/README.md) 已固化；25 张关键状态采用图已入库。M1-01 已有真实外框，自动验证与人工设计 QA 继续分别记录，不把输入图确认当作实现验收。
-- 兼容性已验证部分：固定官方 0.153.4、公开协议、会话接口、真实双文件修改与 4 项业务断言、同线程续轮、停止终态；执行后历史接口返回 3 轮。共享技能严格隔离未满足，按用户决定作为非阻断观察；全量权限、恢复、办公、桌面控制和完整产品包尚未完成。
+- 当前产品结果：[M1 交付说明](validation/AgentX_M1_Delivery.md)。[G1 核心兼容报告](validation/AgentX_Compatibility_Evidence.md#evidence-g1)与[首轮 G0 报告](validation/AgentX_Compatibility_Evidence.md#evidence-g0-first)仅保留前置验证及历史失败，不替代产品验收。
+- 图稿状态：用户已确认 V1，三个默认 [references](design/references/README.md) 已固化；25 张关键状态采用图已入库。各 M1 切片已有真实 Electron 截图与逐状态检查，不把设计图确认当作实现验收。
+- 产品已验证部分：固定官方 0.153.4、真实双文件修复与独立测试、同线程续轮、原生审批允许/拒绝、轮次和后台终止、退出保活及崩溃后不重放。共享技能严格隔离仍是已知来源问题；完整 V1 权限、通用恢复、办公/桌面控制等后续范围未完成。
 - 当前已批准 M1 本地实施和正式产品默认 `.AgentX` 数据设计；自动测试使用独立临时目录，不读取正式凭据或真实项目。远程工单/标签及 Git/PR 操作已获授权，检查通过后仅可合入 m1，master 不动；真实模型验收仅人工触发、只用 Flash。未授权其他模型调用、全局配置修改、上游补丁、发布或自动迁移。
 - 历史 [AX-001](plans/AX-001_Desktop_Foundation.md) 保留已发生的准备工作，不再作为正式 Issue 或 ready-for-agent 凭证。M1 的阶段覆盖在 PRD 中，不能把有限通过或本地草稿当作整页完成与远程门禁完成。
 

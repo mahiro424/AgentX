@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import { readWorkspace } from '../storage/projects';
 import { captureWorkspace, captureGitState } from './workspace-results';
 import { saveWorkspaceBaseline } from '../storage/results';
+import { acquireRuntimeLease, markRuntimeWorkStarted, recordRuntimeClosed, readRuntimeLeases } from '../storage/runtime-leases';
 import { beginTaskSubmission, beginTaskContinuation, markSubmissionDispatched, markSubmissionUncertain, bindSubmissionThread, acknowledgeSubmission, settleTaskTurn, beginTaskStop, updateApprovalWait, readSubmissionIntent } from '../storage/tasks';
 import { parseApprovalRequest, answerApproval, type ApprovalRequest } from '../runtime/codex/approvals';
 import { startThread, resumeThread, startTurn, interruptTurn, steerTurn, terminateBackgroundTerminals } from '../runtime/codex/execution';
@@ -12,6 +13,7 @@ import type { ModelService } from './models';
 import { prepareCodexConfiguration, prepareCodexHistoryConfiguration } from '../runtime/codex/configuration';
 import { openExecutionCodex, openCodex } from '../runtime/codex/process';
 import { readThreadHistory } from '../runtime/codex/history';
+import { readReconciliation } from './reconciliation';
 import type { TaskHistory } from '../../shared/contracts/history';
 import { FLASH_MODEL_ID } from '../../shared/contracts/models';
 import type { ExecutionItem, ExecutionSnapshot, ExecutionControl, ExecutionPlan } from '../../shared/contracts/execution';
@@ -22,12 +24,17 @@ export class ExecutionService {
   private preparing = false;
   private error: string | null = null;
   private closing = false;
+  private shutdownPending: Promise<void> | null = null;
+  private stopPending: Promise<void> | null = null;
+  private exitError: string | null = null;
   private preparationDone = Promise.resolve();
   private finishPreparation: (() => void) | null = null;
   private controlOperations = new Set<string>();
   private runtime: Awaited<ReturnType<typeof openExecutionCodex>> | null = null;
+  private readonly instanceId = randomUUID();
+  private runtimeLeaseId: string | null = null;
   private current: { taskId: string; operationId: string; session: FirstTurnSession } | null = null;
-  private historyReads = new Set<Promise<TaskHistory>>();
+  private historyReads = new Set<Promise<unknown>>();
 
   constructor(private readonly root: string, private readonly resourcesDirectory: string,
     private readonly models: Pick<ModelService, 'captureExecution'>, private readonly onChange: () => void = () => {}) {}
@@ -35,11 +42,14 @@ export class ExecutionService {
   read(): ExecutionSnapshot {
     const plan = this.current?.session.readPlan();
     const intent = this.current ? readSubmissionIntent(this.root, this.current.operationId) : null;
+    const reconciliationTaskIds = [...new Set(readRuntimeLeases(this.root).filter(lease => lease.releasedAt === null &&
+      (lease.leaseId !== this.runtimeLeaseId || (!this.preparing && this.error !== null))).map(lease => lease.taskId))];
     if (intent && intent.taskId !== this.current?.taskId) throw new Error('发送意图归属不一致，请核对任务记录');
     return { preparing: this.preparing,
       task: this.current ? readWorkspace(this.root).tasks.find(task => task.taskId === this.current!.taskId) ?? null : null,
       operationId: this.current?.operationId ?? null, items: this.current?.session.readItems() ?? [],
-      approvals: this.current?.session.readApprovals() ?? [], error: this.error, ...(plan ? { plan } : {}), ...(intent ? { inputText: intent.text } : {}) };
+      approvals: this.current?.session.readApprovals() ?? [], error: this.error, ...(plan ? { plan } : {}), ...(intent ? { inputText: intent.text } : {}),
+      ...(reconciliationTaskIds.length ? { reconciliationTaskIds } : {}) };
   }
 
   async readHistory(input: unknown): Promise<TaskHistory> {
@@ -73,6 +83,14 @@ export class ExecutionService {
     finally { this.historyReads.delete(pending); }
   }
 
+  async readReconciliation(input: unknown) {
+    if (this.closing || this.preparing) throw new Error('正在准备执行或退出，请等待当前操作结束后核对');
+    const pending = readReconciliation(this.root, this.resourcesDirectory, input, this.runtime?.transport);
+    this.historyReads.add(pending);
+    try { return await pending; }
+    finally { this.historyReads.delete(pending); }
+  }
+
   private changed(): void {
     // 窗口通知失败不应中断引擎；错误仍在 Main 日志中可定位。
     try { this.onChange(); } catch { console.error('执行状态通知未送达，请重新读取当前快照'); }
@@ -94,11 +112,19 @@ export class ExecutionService {
 
   async stop(input: unknown): Promise<void> {
     const session = this.control(input);
-    try { const pending = session.stop(); this.changed(); await pending; }
-    finally { this.changed(); }
+    return this.stopSession(session);
+  }
+
+  private async stopSession(session: FirstTurnSession): Promise<void> {
+    const pending = session.stop();
+    this.stopPending = pending;
+    this.changed();
+    try { await pending; }
+    finally { if (this.stopPending === pending) this.stopPending = null; this.changed(); }
   }
 
   async steer(input: unknown): Promise<void> {
+    if (this.closing) throw new Error('应用正在退出，不能补充要求；请保留输入');
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 5 ||
         !('text' in input) || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 200000 || input.text.includes('\0')) throw new Error('补充内容无效，请保留输入');
     const { text, ...control } = input;
@@ -108,6 +134,7 @@ export class ExecutionService {
   }
 
   async answer(input: unknown): Promise<void> {
+    if (this.closing) throw new Error('应用正在退出，不能提交审批');
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 6 ||
         !('approvalToken' in input) || typeof input.approvalToken !== 'string' || !input.approvalToken ||
         !('decision' in input) || (input.decision !== 'accept' && input.decision !== 'decline')) throw new Error('审批请求无效；仅支持本次允许或拒绝');
@@ -121,7 +148,77 @@ export class ExecutionService {
     this.closing = true;
     await Promise.allSettled(this.historyReads);
     await this.preparationDone;
-    if (this.runtime) { await this.runtime.close(); this.runtime = null; }
+    await this.closeOwnedRuntime(false);
+  }
+
+  private async closeOwnedRuntime(backgroundVerified: boolean): Promise<void> {
+    if (!this.runtime) return;
+    await this.runtime.close();
+    if (this.runtimeLeaseId) {
+      // 没有发送意图表示准备/只读恢复失败在任务派发之前，不为此永久占用执行槽。
+      const noIntent = !!this.current && readSubmissionIntent(this.root, this.current.operationId) === null;
+      recordRuntimeClosed(this.root, this.runtimeLeaseId, this.instanceId, backgroundVerified || noIntent);
+      this.runtimeLeaseId = null;
+    }
+    this.runtime = null;
+  }
+
+  needsExitConfirmation(): boolean {
+    return this.preparing || !!this.runtime || !!this.exitError || readRuntimeLeases(this.root).some(lease => lease.releasedAt === null) || readWorkspace(this.root).tasks.some(task =>
+      !['idle', 'completed', 'failed', 'interrupted'].includes(task.executionState));
+  }
+
+  private assertNoUnownedRuntime(): void {
+    if (readRuntimeLeases(this.root).some(lease => lease.releasedAt === null &&
+        (lease.leaseId !== this.runtimeLeaseId || lease.instanceId !== this.instanceId))) {
+      throw new Error('仍有先前引擎及后台回收待核对；不自动重发、清锁或结束未知进程');
+    }
+  }
+
+  private async releaseCompletedRuntime(): Promise<void> {
+    if (!this.runtime) return;
+    if (this.current && readSubmissionIntent(this.root, this.current.operationId) === null) {
+      await this.closeOwnedRuntime(false);
+      return;
+    }
+    const task = this.read().task;
+    if (!task?.threadId || !['completed', 'failed', 'interrupted'].includes(task.executionState)) {
+      throw new Error('本实例轮次或引擎归属尚待核对，不能回收后派发新任务');
+    }
+    const remaining = await terminateBackgroundTerminals(this.runtime.transport, task.threadId,
+      new Set(this.current!.session.readItems().filter(item => item.kind === 'command').map(item => item.itemId)));
+    if (remaining) throw new Error('仍有后台终端归属未核实，未终止陌生命令，也未确认可退出');
+    await this.closeOwnedRuntime(true);
+  }
+
+  // 仅在用户确认真正退出后调用。终态、后台回收、引擎退出三者均须完成。
+  shutdown(): Promise<void> {
+    if (this.shutdownPending) return this.shutdownPending;
+    this.closing = true;
+    const drain = async () => {
+      await this.preparationDone;
+      if (this.stopPending) await this.stopPending;
+      this.assertNoUnownedRuntime();
+      const task = this.read().task;
+      if (task && ['running', 'waitingApproval', 'waitingInput'].includes(task.executionState)) {
+        await this.stopSession(this.current!.session);
+      }
+      if (readWorkspace(this.root).tasks.some(value => !['idle', 'completed', 'failed', 'interrupted'].includes(value.executionState))) {
+        throw new Error('仍有未决任务，尚未确认轮次与后台进程结束；保留记录，不自动重发或强制退出');
+      }
+      await Promise.allSettled(this.historyReads);
+      await this.releaseCompletedRuntime();
+      this.exitError = null;
+    };
+    const pending = drain().catch(error => {
+      this.exitError = error instanceof Error ? error.message : '退出结果未确认，请核对任务与进程';
+      this.error = this.exitError;
+      this.closing = false;
+      this.changed();
+      throw error;
+    }).finally(() => { this.shutdownPending = null; });
+    this.shutdownPending = pending;
+    return pending;
   }
 
   async start(input: unknown) { return this.submit(input, false); }
@@ -130,6 +227,8 @@ export class ExecutionService {
 
   private async submit(input: unknown, continuing: boolean) {
     if (this.closing) throw new Error('应用正在退出，不能发送任务');
+    if (this.exitError) throw new Error(`退出核对尚未完成，不能发送新任务：${this.exitError}`);
+    this.assertNoUnownedRuntime();
     const uuid = (value: unknown): value is string => typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== (continuing ? 8 : 6) ||
         !('taskId' in input) || !uuid(input.taskId) || !('operationId' in input) || !uuid(input.operationId) ||
@@ -155,6 +254,7 @@ export class ExecutionService {
     this.preparationDone = new Promise(resolve => { this.finishPreparation = resolve; });
     this.error = null;
     this.changed();
+    let openedForRequest = false;
     try {
       const snapshot = await this.models.captureExecution(request.configRevision);
       if (this.closing) throw new Error('应用正在退出，未开始执行');
@@ -162,10 +262,7 @@ export class ExecutionService {
       if (await fs.realpath(project.directory) !== project.directory || !(await fs.stat(project.directory)).isDirectory()) throw new Error('项目目录已变化，未开始执行');
       const directory = await fs.opendir(project.directory); await directory.close();
       await Promise.allSettled(this.historyReads);
-      if (this.runtime) {
-        await this.runtime.close();
-        this.runtime = null;
-      }
+      await this.releaseCompletedRuntime();
       const configuration = await prepareCodexConfiguration(this.root, snapshot);
       const now = new Date().toISOString();
       const task: TaskSummary = previous ?? { taskId: request.taskId, projectId: project.projectId, directory: project.directory,
@@ -185,19 +282,25 @@ export class ExecutionService {
           this.changed();
         },
       });
+      openedForRequest = true;
+      const leaseId = randomUUID();
+      acquireRuntimeLease(this.root, { leaseId, instanceId: this.instanceId, taskId: task.taskId,
+        operationId: intent.operationId, projectId: task.projectId, identity: this.runtime.identity, createdAt: new Date().toISOString() });
+      this.runtimeLeaseId = leaseId;
       if (this.closing) throw new Error('应用正在退出，未发送任务');
       const baseline = await captureWorkspace(project.directory);
       const git = await captureGitState(project.directory);
       await saveWorkspaceBaseline(this.root, { taskId: task.taskId, operationId: intent.operationId }, baseline, git);
       if (this.closing) throw new Error('应用正在退出，未发送任务');
+      markRuntimeWorkStarted(this.root, leaseId, this.instanceId);
       await session.submit(this.runtime.transport);
       const saved = readWorkspace(this.root).tasks.find(value => value.taskId === task.taskId);
       if (!saved) throw new Error('提交后任务记录缺失，需核对状态');
       return saved;
     } catch (error) {
       this.error = error instanceof Error ? error.message : '执行失败，请核对状态';
-      if (this.runtime) {
-        try { await this.runtime.close(); this.runtime = null; }
+      if (this.runtime && openedForRequest) {
+        try { await this.closeOwnedRuntime(false); }
         catch (closeError) { throw new AggregateError([error, closeError], '执行准备或发送失败，且引擎回收未确认；禁止重发'); }
       }
       throw error;

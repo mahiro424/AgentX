@@ -1,6 +1,6 @@
-# M1-05 结果与历史验证记录（进行中）
+# M1-05 结果与历史验证记录
 
-日期：2026-09-08。工单 [#10](https://github.com/mahiro424/AgentX/issues/10)，分支 `m1-05`，依赖 [PR #17](https://github.com/mahiro424/AgentX/pull/17) 已合入 `m1`，基线 `4e79e93`。本记录不代表整个切片或 M1 已完成。
+日期：2026-09-08。当前状态已核验：[PR #18](https://github.com/mahiro424/AgentX/pull/18) 已于 12:41 UTC 合入 `m1`，合并提交 `0df19a402d2fb04e8cc90288c5de13cda6166549`；工单 [#10](https://github.com/mahiro424/AgentX/issues/10) 已关闭，分支 `m1-05` 保留，`master` 不变。依赖 [PR #17](https://github.com/mahiro424/AgentX/pull/17) 已合入 `m1`。下文是逐阶段证据与失败原记录，其中当时的待完成说明及五轮批次限制是历史事实，不覆盖后续验收与新授权。
 
 ## 已接通：已结束会话历史
 

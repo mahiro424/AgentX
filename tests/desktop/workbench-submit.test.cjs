@@ -1,10 +1,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { launch } = require('./helpers.cjs');
+const { launch, crashTestApp } = require('./helpers.cjs');
 
 for (const navigateAway of [false, true]) test(`首次发送：${navigateAway ? '切换项目再回来不被迟到结果导航' : '失败保留草稿，确认后进入对应任务'}`, { timeout: 45000 }, async t => {
-  const { app, page } = await launch(); t.after(() => app.close());
+  const { app, page } = await launch(); t.after(() => crashTestApp(app));
   const project = await app.evaluate(({ app, ipcMain, BrowserWindow }, repository) => {
     const req = process.getBuiltinModule('node:module').createRequire(repository + '/package.json');
     req('ts-node').register({ transpileOnly: true, project: repository + '/tsconfig.json' });

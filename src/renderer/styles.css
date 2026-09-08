@@ -12,6 +12,8 @@
   --interaction-selected: #e0e9fc;
   --semantic-error: #b91c1c;
   --semantic-success: #166534;
+  --semantic-warning: #92400e;
+  --semantic-info: #1d4ed8;
   --surface-overlay: #ffffff;
   --overlay-scrim: rgba(17,24,39,0.36);
   --shadow-overlay: 0 12px 32px rgba(17,24,39,0.16);
@@ -104,6 +106,20 @@ h1 { margin: 0; font-size: 24px; line-height: 32px; font-weight: 600; }
 .execution-workbench .welcome-heading { text-align: left; margin-bottom: var(--space-section); }
 .execution-workbench h1 { font-size: 20px; line-height: 28px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .execution-transcript { flex: 1 1 0; min-height: 0; overflow-y: auto; margin-bottom: var(--space-section); padding-right: var(--space-tight); }
+.reconciliation-notice { margin-bottom: var(--space-section); overflow-wrap: anywhere; }
+.reconciliation-heading { display: flex; align-items: center; gap: var(--space-control); }
+.reconciliation-icon { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--semantic-warning); border-radius: 50%; color: var(--semantic-warning); font-weight: 600; }
+.diagnostic-button { min-height: 36px; padding: 0 var(--space-control); border: 0; border-radius: var(--radius-control); color: var(--semantic-info); background: transparent; }
+.diagnostic-button:hover { background: var(--interaction-hover); }
+.diagnostic-button:active { background: var(--interaction-selected); }
+.reconciliation-details { padding: var(--space-control); border: 1px solid var(--border-default); border-radius: var(--radius-control); margin-top: var(--space-tight); }
+.reconciliation-details h3 { font-size: 14px; margin: var(--space-control) 0; }
+.reconciliation-details ul { padding-left: 20px; }
+.reconciliation-details li { margin-bottom: var(--space-control); }
+.reconciliation-details li > * { display: block; }
+.reconciliation-details code { font-size: 12px; }
+.reconciliation-details summary { cursor: pointer; margin: var(--space-control) 0; }
+.reconciliation-details summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .execution-timeline { margin-bottom: var(--space-section); }
 .execution-message { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 var(--space-section); }
 .execution-user-message { width: fit-content; max-width: 85%; margin-left: auto; padding: var(--space-control); border-radius: var(--radius-panel); background: var(--interaction-selected); }
@@ -201,6 +217,8 @@ select { min-height: 36px; border: 1px solid var(--border-default); border-radiu
   --interaction-selected: #263449;
   --semantic-error: #fca5a5;
   --semantic-success: #86efac;
+  --semantic-warning: #fcd34d;
+  --semantic-info: #93c5fd;
   --surface-overlay: #1f2937;
   --overlay-scrim: rgba(0,0,0,0.56);
   --shadow-overlay: 0 12px 32px rgba(0,0,0,0.32);
@@ -224,6 +242,8 @@ select { min-height: 36px; border: 1px solid var(--border-default); border-radiu
     --interaction-selected: #263449;
     --semantic-error: #fca5a5;
     --semantic-success: #86efac;
+    --semantic-warning: #fcd34d;
+    --semantic-info: #93c5fd;
     --surface-overlay: #1f2937;
     --overlay-scrim: rgba(0,0,0,0.56);
     --shadow-overlay: 0 12px 32px rgba(0,0,0,0.32);
@@ -275,15 +295,17 @@ select { min-height: 36px; border: 1px solid var(--border-default); border-radiu
 .project-menu { position: fixed; z-index: 5; width: 188px; padding: 8px; background: var(--surface-overlay); border: 1px solid var(--border-default); border-radius: var(--radius-panel); box-shadow: var(--shadow-overlay); }
 .project-menu button { display: flex; align-items: center; gap: var(--space-tight); width: 100%; min-height: 40px; padding: 0 var(--space-control); border: 0; border-radius: var(--radius-control); background: transparent; text-align: left; }
 .project-menu button:hover { background: var(--interaction-hover); }
-.project-editor { width: min(480px, calc(100vw - 48px)); max-height: calc(100vh - 48px); padding: var(--space-section); border: 1px solid var(--border-default); border-radius: var(--radius-panel); background: var(--surface-overlay); color: var(--text-primary); box-shadow: var(--shadow-overlay); }
-.project-editor::backdrop { background: var(--overlay-scrim); }
-.project-editor header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-section); }
-.project-editor h2 { margin: 0; font-size: 16px; line-height: 24px; }
+.project-editor, .exit-dialog { width: min(480px, calc(100vw - 48px)); max-height: calc(100vh - 48px); padding: var(--space-section); border: 1px solid var(--border-default); border-radius: var(--radius-panel); background: var(--surface-overlay); color: var(--text-primary); box-shadow: var(--shadow-overlay); }
+.project-editor::backdrop, .exit-dialog::backdrop { background: var(--overlay-scrim); }
+.project-editor header, .exit-dialog header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-section); }
+.project-editor h2, .exit-dialog h2 { margin: 0; font-size: 16px; line-height: 24px; }
 .project-editor label { display: block; margin: var(--space-control) 0 4px; }
 .project-editor input { width: 100%; min-height: 36px; padding: 10px var(--space-control); border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--surface-base); }
 .project-editor input[readonly] { background: var(--surface-subtle); }
 .project-editor input[aria-invalid='true'] { border-color: var(--semantic-error); }
-.project-editor footer { display: flex; justify-content: flex-end; gap: var(--space-tight); margin-top: var(--space-section); }
+.project-editor footer, .exit-dialog footer { display: flex; justify-content: flex-end; gap: var(--space-tight); margin-top: var(--space-section); }
+.exit-dialog footer { flex-wrap: wrap; }
+.exit-dialog p { overflow-wrap: anywhere; }
 .primary-button { min-height: 36px; padding: 0 14px; border: 0; border-radius: var(--radius-control); background: var(--action-primary); color: var(--text-on-primary); }
 .primary-button:hover { background: var(--action-primary-hover); }
 .primary-button:active { background: var(--action-primary-pressed); }

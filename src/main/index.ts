@@ -1,15 +1,19 @@
 import { ProjectService } from './services/projects';
+import { createProductTray } from './lifecycle/tray';
 import { readDraft, saveDraft } from './storage/drafts';
 import { DRAFT_READ_CHANNEL, DRAFT_SAVE_CHANNEL } from '../shared/contracts/drafts';
 import { PROJECT_RENAME_CHANNEL, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, WORKSPACE_READ_CHANNEL } from '../shared/contracts/projects';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session } from 'electron';
 import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { EXIT_READ_CHANNEL, EXIT_ANSWER_CHANNEL, EXIT_CHANGED_CHANNEL, type ExitSnapshot } from '../shared/contracts/lifecycle';
 import path from 'node:path';
 import { APP_INFO_CHANNEL, OUTPUT_COPY_CHANNEL, PREFERENCES_READ_CHANNEL, PREFERENCES_SAVE_CHANNEL, type AppInfo, type Preferences } from '../shared/contracts/app';
 import { readPreferences, savePreferences } from './storage/preferences';
 import { MODEL_SETTINGS_CHANGED_CHANNEL, MODEL_TEST_CHANNEL, MODEL_SETTINGS_READ_CHANNEL, MODEL_KEY_SAVE_CHANNEL, MODEL_KEY_REVEAL_CHANNEL, MODEL_SETTINGS_VISIBLE_CHANNEL, MODEL_ENABLED_CHANNEL, MODEL_CATALOG_FETCH_CHANNEL, MODEL_SELECTION_CHANNEL, MODEL_ACTIVE_CHANNEL } from '../shared/contracts/models';
 import { ModelService } from './services/models';
 import { ExecutionService } from './services/execution';
+import { RECONCILIATION_READ_CHANNEL } from '../shared/contracts/reconciliation';
 import { TASK_HISTORY_READ_CHANNEL } from '../shared/contracts/history';
 import { TASK_RESULTS_READ_CHANNEL } from '../shared/contracts/results';
 import { readTaskResults } from './services/task-results';
@@ -31,6 +35,13 @@ app.setPath('sessionData', path.join(dataRoot, 'chromium'));
 app.setAppUserModelId('AgentX');
 
 let mainWindow: BrowserWindow | null = null;
+let tray: ReturnType<typeof createProductTray> | null = null;
+let engineClosed = false;
+let exitState: ExitSnapshot = { state: 'idle' };
+function showWindow(): void {
+  if (mainWindow?.isMinimized()) mainWindow.restore();
+  mainWindow?.show(); mainWindow?.focus();
+}
 const models = new ModelService(dataRoot);
 const execution = new ExecutionService(dataRoot, app.isPackaged ? process.resourcesPath : path.join(app.getAppPath(), '.cache'), models, () => {
   if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.getURL() === mainWindowURL) {
@@ -40,6 +51,47 @@ const execution = new ExecutionService(dataRoot, app.isPackaged ? process.resour
 });
 const projects = new ProjectService(dataRoot, () => execution.read().task);
 let modelSettingsVisible = false;
+
+function updateExitState(value: ExitSnapshot): void {
+  exitState = value;
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.getURL() === mainWindowURL) {
+    mainWindow.webContents.send(EXIT_CHANGED_CHANNEL);
+  }
+}
+
+function stopAndExit(requestId: string): void {
+  updateExitState({ state: 'stopping', requestId, error: null });
+  void execution.shutdown().then(() => { engineClosed = true; app.quit(); }).catch(error => {
+    updateExitState({ state: 'error', requestId, error: error instanceof Error ? error.message : '退出结果未确认，请核对任务与进程' });
+    showWindow();
+  });
+}
+
+function requestExit(): void {
+  if (exitState.state !== 'idle') { showWindow(); return; }
+  const requestId = randomUUID();
+  try {
+    if (execution.needsExitConfirmation()) {
+      updateExitState({ state: 'confirm', requestId, error: null });
+      showWindow();
+    } else stopAndExit(requestId);
+  } catch (error) {
+    updateExitState({ state: 'error', requestId, error: error instanceof Error ? error.message : '任务状态读取失败，未确认可以退出' });
+    showWindow();
+  }
+}
+
+function answerExit(input: unknown): void {
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 2 ||
+      !('requestId' in input) || !('decision' in input) || exitState.state === 'idle' || exitState.state === 'stopping' ||
+      input.requestId !== exitState.requestId || typeof input.decision !== 'string' || !['cancel', 'tray', 'stop'].includes(input.decision)) {
+    throw new Error('退出确认已失效或请求无效，请重新读取状态');
+  }
+  if (input.decision === 'stop') { stopAndExit(exitState.requestId); return; }
+  if (input.decision === 'tray' && (!tray || tray.isDestroyed())) throw new Error('托盘不可用，窗口仍保留；任务未被停止');
+  updateExitState({ state: 'idle' });
+  if (input.decision === 'tray') mainWindow?.hide();
+}
 
 function requireProductFrame(event: Electron.IpcMainInvokeEvent, actualCount: number, expectedCount: number): void {
   if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame ||
@@ -82,6 +134,15 @@ function createWindow(): void {
     },
   });
   const window = mainWindow;
+  window.on('close', event => {
+    if (engineClosed) return;
+    event.preventDefault();
+    if (!tray || tray.isDestroyed()) {
+      dialog.showErrorBox('无法保留到托盘', '托盘不可用，窗口仍保留；任务未被停止。');
+      return;
+    }
+    window.hide();
+  });
   window.on('blur', () => { modelSettingsVisible = false; });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
@@ -106,11 +167,19 @@ function createWindow(): void {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => { if (mainWindow?.isMinimized()) mainWindow.restore(); mainWindow?.show(); mainWindow?.focus(); });
+  app.on('second-instance', showWindow);
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
+    ipcMain.handle(EXIT_READ_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 0);
+      return exitState;
+    });
+    ipcMain.handle(EXIT_ANSWER_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      answerExit(args[0]);
+    });
     ipcMain.handle(OUTPUT_COPY_CHANNEL, async (event, ...args) => {
       requireProductFrame(event, args.length, 1);
       const text = args[0];
@@ -124,6 +193,10 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(TASK_HISTORY_READ_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 1);
       return execution.readHistory(args[0]);
+    });
+    ipcMain.handle(RECONCILIATION_READ_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return execution.readReconciliation(args[0]);
     });
     ipcMain.handle(TASK_RESULTS_READ_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 1);
@@ -232,20 +305,14 @@ if (!app.requestSingleInstanceLock()) {
       applyPreferences(value);
       return value;
     });
+    tray = createProductTray(showWindow, () => app.quit());
     createWindow();
   }).catch(error => { console.error('AgentX 初始化失败：', error.message); app.exit(1); });
-  // 本切片只回收本实例引擎；托盘与活动退出确认在 M1-06 完整交付。
-  let exiting = false;
-  let engineClosed = false;
   app.on('before-quit', event => {
     if (engineClosed) return;
     event.preventDefault();
-    if (exiting) return;
-    exiting = true;
-    void execution.close().then(() => { engineClosed = true; app.quit(); }).catch(() => {
-      exiting = false;
-      dialog.showErrorBox('引擎退出未确认', '未能确认本实例引擎退出，请核对任务及进程状态；本次未自动强制退出。');
-    });
+    requestExit();
   });
   app.on('window-all-closed', () => app.quit());
+  app.on('will-quit', () => { tray?.destroy(); tray = null; });
 }

@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { launch } = require('./helpers.cjs');
+const { launch, crashTestApp } = require('./helpers.cjs');
 
 async function assertComposerInViewport(page) {
   const bounds = await page.evaluate(() => {
@@ -15,7 +15,7 @@ async function assertComposerInViewport(page) {
 }
 
 test('reconciling 与 staleApproval：断线后旧审批不可操作，页面往返保留草稿且不自动执行', { timeout: 45000 }, async t => {
-  const { app, page } = await launch(); t.after(() => app.close());
+  const { app, page } = await launch(); t.after(() => crashTestApp(app));
   await app.evaluate(({ app, ipcMain, BrowserWindow }, repository) => {
     const req = process.getBuiltinModule('node:module').createRequire(repository + '/package.json');
     req('ts-node').register({ transpileOnly: true, project: repository + '/tsconfig.json' });
@@ -64,7 +64,7 @@ test('reconciling 与 staleApproval：断线后旧审批不可操作，页面往
 });
 
 test('running：真实工作台显示执行项，输入主按钮切换为停止，停止应答不伪装终态', { timeout: 45000 }, async t => {
-  const { app, page } = await launch(); t.after(() => app.close());
+  const { app, page } = await launch(); t.after(() => crashTestApp(app));
   await app.evaluate(({ app, ipcMain, BrowserWindow }, repository) => {
     const req = process.getBuiltinModule('node:module').createRequire(repository + '/package.json');
     req('ts-node').register({ transpileOnly: true, project: repository + '/tsconfig.json' });

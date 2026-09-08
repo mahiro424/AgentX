@@ -58,6 +58,9 @@ test('固定进程：生产配置被真实引擎读取，Flash 目录可用且 s
   const runtime = await openCodex({ ...prepared, resourcesDirectory: path.join(process.env.AGENTX_TEST_PACKAGE_DIR ?? path.resolve('out/AgentX-win32-x64'), 'resources'), workingDirectory: root },
     { notification: () => {}, request: () => { throw new Error('不得请求审批'); }, disconnected: () => {} });
   t.after(() => runtime.close());
+  assert.equal(runtime.identity?.pid, runtime.pid);
+  assert.equal(runtime.identity?.parentPid, process.pid);
+  assert.equal(runtime.identity?.executablePath.toLowerCase(), runtime.binary?.toLowerCase());
   const { config } = await runtime.transport.call('config/read', { cwd: root, includeLayers: true });
   assert.equal(config.model, 'deepseek-v4-flash');
   assert.equal(config.model_providers.deepseek.base_url, 'https://api.deepseek.com');

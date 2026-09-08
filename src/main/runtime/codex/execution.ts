@@ -69,7 +69,7 @@ export async function interruptTurn(transport: CodexTransport, threadId: string,
 }
 
 // 固定版本的实验性终端接口仅在 Main 适配器内使用，不暴露通用 RPC。
-export async function terminateBackgroundTerminals(transport: CodexTransport, threadId: string, itemIds: ReadonlySet<string>): Promise<void> {
+export async function terminateBackgroundTerminals(transport: CodexTransport, threadId: string, itemIds: ReadonlySet<string>): Promise<number> {
   if (!identifier(threadId) || [...itemIds].some(id => !identifier(id))) throw new Error('后台终端归属无效');
   const list = async () => {
     const terminals = new Map<string, string>();
@@ -100,6 +100,7 @@ export async function terminateBackgroundTerminals(transport: CodexTransport, th
   }
   const remaining = await list();
   if ([...remaining.values()].some(itemId => itemIds.has(itemId))) throw new Error('当前任务的后台命令仍在运行，停止尚未完成');
+  return remaining.size;
 }
 
 export async function steerTurn(transport: CodexTransport, threadId: string, expectedTurnId: string, text: string) {
