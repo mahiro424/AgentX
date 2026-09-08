@@ -362,7 +362,7 @@ sequenceDiagram
 
 能力采用“未配置、检查中、可用、不可用、待重新验证”管理，记录依据和实际版本。引擎握手成功不代表模型、沙箱或工具全部可用；不能用单一绿色“服务正常”覆盖全部组件。
 
-关键门禁与证据格式见[兼容性验证计划](../plans/AgentX_Compatibility_Validation_Plan.md)。G0/G1 有限结果见[G1 核心报告](../validation/AgentX_Compatibility_Evidence.md#evidence-g1)，首轮 G0 失败仍留档。全量权限、恢复、办公/浏览器/电脑操作与打包未通过；M1 不重做整套前置实验，而在相关切片中验证必需产品链路。M1 交付不等于完整 V1。
+关键门禁与证据格式见[兼容性验证计划](../plans/AgentX_Compatibility_Validation_Plan.md)。G0/G1 有限结果见[G1 核心报告](../validation/AgentX_Compatibility_Evidence.md#evidence-g1)，首轮 G0 失败仍留档。M1 的真实产品、打包与生命周期证据见[交付说明](../validation/AgentX_M1_Delivery.md)；完整 V1 的全量权限、通用恢复、办公/浏览器/电脑操作尚未通过。M1 不重做整套前置实验，也不等于完整 V1。
 
 ## 12. 官方资料与事实边界
 
