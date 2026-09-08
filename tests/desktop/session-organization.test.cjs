@@ -135,12 +135,12 @@ test('v9 会话升级：打包应用先备份旧结构，原会话保留，首�
     const before = (await page.evaluate(() => window.agentx.getWorkspace())).tasks[0];
     await app.close();
     const old = new DatabaseSync(path.join(data, 'agentx.db'));
-    try { old.exec('ALTER TABLE tasks DROP COLUMN organization_revision; PRAGMA user_version=9'); }
+    try { old.exec('ALTER TABLE tasks DROP COLUMN pinned_at; ALTER TABLE tasks DROP COLUMN organization_revision; PRAGMA user_version=9'); }
     finally { old.close(); }
     ({ app, page } = await launch(data));
     await page.getByRole('button', { name: before.title, exact: true }).waitFor();
     assert.deepEqual((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0], before);
-    const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v10\..+\.db$/.test(name));
+    const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v11\..+\.db$/.test(name));
     assert.equal(backups.length, 1);
     const backup = new DatabaseSync(path.join(data, backups[0]), { readOnly: true });
     try {
@@ -175,4 +175,83 @@ test('会话编辑写入失败：真实数据库占用时保留输入，释放�
   await name.press('Enter');
   await page.getByRole('dialog', { name: '重命名会话', exact: true }).waitFor({ state: 'hidden' });
   assert.equal((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0].title, '保留到可以保存为止');
+});
+
+
+test('会话置顶：悬停动作移到唯一置顶行，重开保持，键盘菜单取消后回归原项目', { timeout: 60000 }, async () => {
+  let { app, page, data } = await launch();
+  try {
+    const taskId = await seedTask(app);
+    const before = (await page.evaluate(() => window.agentx.getWorkspace())).tasks[0];
+    const row = page.getByRole('button', { name: before.title, exact: true });
+    await row.hover();
+    await page.getByRole('button', { name: `置顶会话：${before.title}`, exact: true }).click();
+    const pinned = page.getByRole('region', { name: '置顶会话', exact: true });
+    await pinned.getByRole('button', { name: before.title, exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: before.title, exact: true }).count(), 1);
+    const saved = (await page.evaluate(() => window.agentx.getWorkspace())).tasks[0];
+    assert.equal(saved.organizationRevision, before.organizationRevision + 1);
+    assert.ok(Number.isFinite(Date.parse(saved.pinnedAt)));
+    assert.deepEqual({ ...saved, pinnedAt: before.pinnedAt, organizationRevision: before.organizationRevision }, before);
+    await app.close(); ({ app, page } = await launch(data));
+    const pinnedAgain = page.getByRole('region', { name: '置顶会话', exact: true });
+    const pinnedRow = pinnedAgain.getByRole('button', { name: before.title, exact: true });
+    await pinnedRow.focus(); await pinnedRow.press('Shift+F10');
+    await page.getByRole('menuitem', { name: '重命名会话', exact: true }).press('ArrowDown');
+    await page.getByRole('menuitem', { name: '取消置顶会话', exact: true }).press('Enter');
+    await pinnedAgain.waitFor({ state: 'hidden' });
+    const snapshot = await page.evaluate(() => window.agentx.getWorkspace());
+    await page.getByRole('region', { name: `项目：${snapshot.projects[0].displayName}`, exact: true }).getByRole('button', { name: before.title, exact: true }).waitFor();
+    assert.equal(snapshot.tasks[0].taskId, taskId); assert.equal(snapshot.tasks[0].pinnedAt, null);
+    assert.equal(snapshot.tasks[0].organizationRevision, saved.organizationRevision + 1);
+    assert.equal(snapshot.tasks[0].lastActivityAt, before.lastActivityAt);
+    assert.equal(await page.getByRole('button', { name: before.title, exact: true }).count(), 1);
+  } finally { await app.close(); }
+});
+
+
+test('会话置顶 IPC：非法参数和旧修订不能置顶或取消，也不能覆盖并发改名', { timeout: 30000 }, async t => {
+  const { app, page } = await launch(); t.after(() => app.close());
+  const taskId = await seedTask(app);
+  const before = (await page.evaluate(() => window.agentx.getWorkspace())).tasks[0];
+  const request = { taskId, operationId: randomUUID(), expectedRevision: 0, pinned: true };
+  for (const invalid of [null, [], { ...request, pinned: 'true' }, { ...request, taskId: 'invalid' },
+    { ...request, operationId: 'invalid' }, { ...request, expectedRevision: -1 }, { ...request, expectedRevision: 0.5 },
+    { ...request, executionState: 'completed' }]) {
+    await assert.rejects(page.evaluate(value => window.agentx.setTaskPinned(value), invalid), /会话置顶请求无效/);
+    assert.deepEqual((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0], before);
+  }
+  const saved = await page.evaluate(value => window.agentx.setTaskPinned(value), request);
+  await assert.rejects(page.evaluate(value => window.agentx.setTaskPinned(value), { ...request, pinned: false }), /已被其他操作更新/);
+  await assert.rejects(page.evaluate(value => window.agentx.renameTask(value), { taskId, operationId: randomUUID(), expectedRevision: 0, title: '旧修订覆盖' }), /已被其他操作更新/);
+  assert.deepEqual((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0], saved);
+  assert.deepEqual({ ...saved, pinnedAt: null, organizationRevision: 0 }, before);
+});
+
+test('v10 会话升级：先备份已改名的组织修订，置顶后不重置原修订或执行事实', { timeout: 60000 }, async () => {
+  const fs = require('node:fs/promises');
+  const { DatabaseSync } = require('node:sqlite');
+  let { app, page, data } = await launch();
+  try {
+    const taskId = await seedTask(app);
+    const before = await page.evaluate(value => window.agentx.renameTask(value), { taskId, operationId: randomUUID(), expectedRevision: 0, title: '升级前已改过名' });
+    await app.close();
+    const old = new DatabaseSync(path.join(data, 'agentx.db'));
+    try { old.exec('ALTER TABLE tasks DROP COLUMN pinned_at; PRAGMA user_version=10'); } finally { old.close(); }
+    ({ app, page } = await launch(data));
+    await page.getByRole('button', { name: before.title, exact: true }).waitFor();
+    assert.deepEqual((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0], before);
+    const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v11\..+\.db$/.test(name));
+    assert.equal(backups.length, 1);
+    const original = new DatabaseSync(path.join(data, backups[0]), { readOnly: true });
+    try {
+      assert.equal(original.prepare('PRAGMA user_version').get().user_version, 10);
+      assert.equal(original.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+      assert.equal(original.prepare('SELECT organization_revision FROM tasks').get().organization_revision, 1);
+      assert.equal(original.prepare('PRAGMA table_info(tasks)').all().some(column => column.name === 'pinned_at'), false);
+    } finally { original.close(); }
+    const saved = await page.evaluate(value => window.agentx.setTaskPinned(value), { taskId, operationId: randomUUID(), expectedRevision: 1, pinned: true });
+    assert.equal(saved.organizationRevision, 2);
+    assert.deepEqual({ ...saved, organizationRevision: 1, pinnedAt: null }, before);
+  } finally { await app.close(); }
 });

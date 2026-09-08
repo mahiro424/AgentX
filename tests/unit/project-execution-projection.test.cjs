@@ -43,5 +43,8 @@ test('活动会话改名：旧执行快照不能覆盖新标题，组织不更�
   const service = new ProjectService(root, () => current);
   const saved = service.renameTask({ operationId: randomUUID(), taskId: current.taskId, title: '产品中的新名称', expectedRevision: 0 });
   assert.deepEqual((await service.read()).tasks, [saved]);
-  assert.deepEqual({ ...saved, title: current.title, organizationRevision: undefined }, { ...current, organizationRevision: undefined });
+  const pinned = service.setTaskPinned({ operationId: randomUUID(), taskId: current.taskId, expectedRevision: 1, pinned: true });
+  assert.deepEqual((await service.read()).tasks, [pinned]);
+  assert.deepEqual({ ...pinned, organizationRevision: 1, pinnedAt: null }, saved);
+  assert.deepEqual({ ...saved, title: current.title, organizationRevision: undefined }, { ...current, pinnedAt: null, organizationRevision: undefined });
 });

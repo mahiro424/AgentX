@@ -229,7 +229,7 @@ test('M1-03 active：公开快照的运行与等待标记不同，更新观测�
   const project = snapshot.projects[0];
   const now = new Date().toISOString();
   const tasks = ['运行中的合成记录', '等待批准的合成记录'].map((title, i) => ({ taskId: `task-fixture-${i}`, projectId: project.projectId,
-    title, directory: project.directory, lastActivityAt: now, observedAt: now, executionState: i === 0 ? 'running' : 'waitingApproval', threadId: `thread-fixture-${i}`, turnId: `turn-fixture-${i}` }));
+    title, directory: project.directory, organizationRevision: 0, pinnedAt: null, lastActivityAt: now, observedAt: now, executionState: i === 0 ? 'running' : 'waitingApproval', threadId: `thread-fixture-${i}`, turnId: `turn-fixture-${i}` }));
   await app.evaluate(({ ipcMain, BrowserWindow }, snapshot) => {
     globalThis.workspaceFixture = snapshot;
     ipcMain.removeHandler('agentx:workspace-read'); ipcMain.handle('agentx:workspace-read', () => globalThis.workspaceFixture);
@@ -237,6 +237,10 @@ test('M1-03 active：公开快照的运行与等待标记不同，更新观测�
   }, { ...snapshot, tasks });
   await page.getByRole('img', { name: '正在运行' }).waitFor();
   await page.getByRole('img', { name: '等待批准' }).waitFor();
+  await page.getByRole('button', { name: '运行中的合成记录', exact: true }).hover();
+  assert.equal(await page.getByRole('img', { name: '正在运行' }).isVisible(), true, '悬停操作不能隐藏运行状态');
+  await page.getByRole('button', { name: '等待批准的合成记录', exact: true }).focus();
+  assert.equal(await page.getByRole('img', { name: '等待批准' }).isVisible(), true, '键盘聚焦不能隐藏等待状态');
   const rows = page.getByRole('list', { name: '会话状态项目的会话' }).getByRole('button');
   const before = await rows.allTextContents();
   await app.evaluate(({ BrowserWindow }) => {
@@ -304,7 +308,7 @@ test('迁移失败：旧版模型数据先留一致性快照，失败整体回�
     finally { db.close(); }
   });
   assert.deepEqual(result, { version: 3, hasProjects: false, catalog: '["synthetic-model"]' });
-  assert.ok((await fs.readdir(data)).some(name => /^agentx\.before-v10\..+\.db$/.test(name)));
+  assert.ok((await fs.readdir(data)).some(name => /^agentx\.before-v11\..+\.db$/.test(name)));
 });
 
 test('损坏记录：项目字段与会话目录关联损坏时报错，不隐藏或错误归组', { timeout: 30000 }, async t => {
@@ -477,7 +481,7 @@ test('迁移成功：M1-02 模型记录与保存保护标记保留，备份能�
   assert.deepEqual(readCatalog(data), { modelIds: ['synthetic-model'], fetchedAt: '2026-09-01T00:00:00.000Z', configRevision: 7 });
   assert.equal(readModelTests(data)[0].error, '合成历史错误');
   assert.match(readKeySaveFailure(data, 'synthetic-reference'), /不会使用旧 Key/);
-  const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v10\..+\.db$/.test(name));
+  const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v11\..+\.db$/.test(name));
   assert.equal(backups.length, 1);
   const original = await app.evaluate((_electron, filename) => {
     const { DatabaseSync } = process.getBuiltinModule('node:sqlite');

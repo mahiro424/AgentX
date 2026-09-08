@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { EXECUTION_STATES, type TaskSummary, type OrganizedTaskSummary, type TaskRename } from '../../shared/contracts/projects';
+import { EXECUTION_STATES, type TaskSummary, type OrganizedTaskSummary, type TaskRename, type TaskPin } from '../../shared/contracts/projects';
 import { withDatabase } from './database';
 import { FLASH_MODEL_ID } from '../../shared/contracts/models';
 import type { ReconciliationIntent } from '../../shared/contracts/reconciliation';
@@ -153,7 +153,9 @@ function organizedTaskFromRow(row: Record<string, unknown>): OrganizedTaskSummar
   if (typeof row.organization_revision !== 'number' || !Number.isSafeInteger(row.organization_revision) || row.organization_revision < 0) {
     throw new Error('invalid-task-organization-revision');
   }
-  return { ...taskFromRow(row), organizationRevision: row.organization_revision };
+  if (row.pinned_at !== null && (typeof row.pinned_at !== 'string' || !Number.isFinite(Date.parse(row.pinned_at)) ||
+      new Date(row.pinned_at).toISOString() !== row.pinned_at)) throw new Error('invalid-task-pin');
+  return { ...taskFromRow(row), organizationRevision: row.organization_revision, pinnedAt: row.pinned_at as string | null };
 }
 
 export function readOrganizedTaskRecords(database: DatabaseSync): OrganizedTaskSummary[] {
@@ -165,6 +167,18 @@ export function renameTask(root: string, request: TaskRename): OrganizedTaskSumm
     database.exec('BEGIN IMMEDIATE');
     const row = database.prepare(`UPDATE tasks SET title=?, organization_revision=organization_revision+1
       WHERE task_id=? AND organization_revision=? RETURNING *`).get(request.title, request.taskId, request.expectedRevision);
+    const value = row ? organizedTaskFromRow(row) : null;
+    database.exec('COMMIT');
+    return value;
+  });
+}
+
+export function setTaskPinned(root: string, request: TaskPin): OrganizedTaskSummary | null {
+  return withDatabase(root, database => {
+    database.exec('BEGIN IMMEDIATE');
+    const row = database.prepare(`UPDATE tasks SET pinned_at=CASE WHEN ? THEN COALESCE(pinned_at,?) ELSE NULL END,
+      organization_revision=organization_revision+1 WHERE task_id=? AND organization_revision=? RETURNING *`)
+      .get(request.pinned ? 1 : 0, new Date().toISOString(), request.taskId, request.expectedRevision);
     const value = row ? organizedTaskFromRow(row) : null;
     database.exec('COMMIT');
     return value;

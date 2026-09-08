@@ -1,6 +1,6 @@
 import { PROJECT_RENAME_CHANNEL, type ProjectRename, type ProjectRecord, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, type ProjectOperation, type ProjectChoice, WORKSPACE_READ_CHANNEL, type WorkspaceSnapshot } from '../shared/contracts/projects';
 import { contextBridge, ipcRenderer } from 'electron';
-import { TASK_RENAME_CHANNEL, type TaskRename, type OrganizedTaskSummary } from '../shared/contracts/projects';
+import { TASK_RENAME_CHANNEL, TASK_PIN_CHANNEL, type TaskRename, type TaskPin, type OrganizedTaskSummary } from '../shared/contracts/projects';
 import { RECONCILIATION_READ_CHANNEL, type ReconciliationRequest, type ReconciliationSnapshot } from '../shared/contracts/reconciliation';
 import { EXIT_READ_CHANNEL, EXIT_ANSWER_CHANNEL, EXIT_CHANGED_CHANNEL, type ExitAnswer, type ExitSnapshot } from '../shared/contracts/lifecycle';
 import { TASK_RESULTS_READ_CHANNEL, type TaskResults, type TaskResultsRequest } from '../shared/contracts/results';
@@ -40,6 +40,7 @@ const bridge: AgentXBridge = Object.freeze({
     return () => ipcRenderer.removeListener(EXECUTION_CHANGED_CHANNEL, notify);
   },
   renameProject: (value: ProjectRename): Promise<ProjectRecord> => ipcRenderer.invoke(PROJECT_RENAME_CHANNEL, value),
+  setTaskPinned: (value: TaskPin): Promise<OrganizedTaskSummary> => ipcRenderer.invoke(TASK_PIN_CHANNEL, value),
   renameTask: (value: TaskRename): Promise<OrganizedTaskSummary> => ipcRenderer.invoke(TASK_RENAME_CHANNEL, value),
   chooseProject: (value: ProjectOperation): Promise<ProjectChoice> => ipcRenderer.invoke(PROJECT_CHOOSE_CHANNEL, value),
   onWorkspaceChanged: (listener: () => void): (() => void) => {

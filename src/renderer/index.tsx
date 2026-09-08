@@ -239,7 +239,8 @@ function App() {
 
   return <div className="app-shell">
     {workspace.editing && <ProjectEditor project={workspace.editing} onSaved={() => void workspace.load()} onClose={workspace.closeEditor} />}
-    {workspace.taskMenu && <TaskMenu menu={workspace.taskMenu} onRename={workspace.startTaskEditing} onClose={workspace.closeTaskMenu} />}
+    {workspace.taskMenu && <TaskMenu menu={workspace.taskMenu} onRename={workspace.startTaskEditing} busy={!!workspace.organizingTaskId}
+      onPin={() => void workspace.pinTask(workspace.taskMenu!.task, workspace.taskMenu!.trigger)} onClose={workspace.closeTaskMenu} />}
     {workspace.editingTask && <TaskEditor task={workspace.editingTask} onSaved={() => void workspace.load()} onClose={workspace.closeTaskEditor} />}
     {sidebarOpen && <aside ref={sidebar} className="sidebar" aria-label="侧栏" style={{ width: sidebarWidth }}>
       <header className="brand drag-region"><span>AgentX</span><button ref={sidebarToggle} className="icon-button" aria-label="收起侧栏" onClick={toggleSidebar}><PanelIcon /></button></header>

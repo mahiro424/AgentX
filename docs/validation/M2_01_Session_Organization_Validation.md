@@ -46,16 +46,43 @@
 
 没有重新执行全系统 DPI 或人工候选窗口检查；不把组合事件测试写成人工输入法验收。
 
+## 会话置顶与取消置顶
+
+在改名提交 c5db748 上继续单行为 TDD。该提交的 [Windows CI](https://github.com/mahiro424/AgentX/actions/runs/34262590767) 已实际验证 194/194；[文档门禁](https://github.com/mahiro424/AgentX/actions/runs/34262590860) 也通过。它不是完整 M2-01 的 PR 或合并记录。
+
+置顶 RED 为原包不存在“置顶会话”悬停入口。实现后真实 Electron 完成：悬停置顶、置顶区唯一展示、重开持久、键盘菜单取消、返回原项目；task/thread/turn/执行与最近活动不变。与迁移、非法 IPC、陈旧修订和原改名回归合跑 24/24 通过。
+
+- 新增有限 setTaskPinned 接口，Main 校验字段及组织修订；置顶与改名共享 CAS，陈旧置顶不能覆盖改名，反之亦然。
+- v11 增加 pinned_at，v10 的非零组织修订保留，升级前一致性备份；旧版本夹具同步移除新增列后才标记旧版本，不容忍错误 schema。
+- 侧栏悬停/聚焦和菜单共用动作；置顶只改变产品组织，运行任务也可置顶。多项菜单支持上下键、Home/End 与 Escape。
+- 置顶失败不会假称成功；“重读会话列表”只重新读取，不重发失败的置顶。上一操作失败提示保留至显式新操作，不把重读列表当作保存成功。
+- 首次完整置顶回归 196/197：活动状态测试的旧快照缺少组织字段，已补齐契约。进一步新增悬停断言确认运行标记会被操作按钮隐藏，实际 RED 后改为始终保留运行、等待及错误状态，仅普通活动时间在悬停时让位。该变化同时以键盘聚焦验证；不删除原活动与排序测试。
+- 最终完整回归 **197/197** 通过，0 fail/cancelled/skipped，290518.3285 ms；原始日志为 .local-validation/m2-01/27-pin-full-regression.log。当前类型检查及打包通过；归档与搜索尚未交付。
+
+### 置顶实机与包体
+
+已检查四种窗口的唯一置顶行、左侧固定标记、多项菜单及改名兼容；真实运行与等待标记另有悬停/键盘测试。没有重新宣称全系统 DPI 或人工候选窗口检查通过。
+
+| 窗口 | 菜单 | 编辑兼容 |
+| --- | --- | --- |
+| 浅色 1280×820 | [菜单](images/m2-01/pin-menu-light-1280.png) | [编辑](images/m2-01/pin-editor-light-1280.png) |
+| 浅色 960×640 | [菜单](images/m2-01/pin-menu-light-960.png) | [编辑](images/m2-01/pin-editor-light-960.png) |
+| 深色 1280×820 | [菜单](images/m2-01/pin-menu-dark-1280.png) | [编辑](images/m2-01/pin-editor-dark-1280.png) |
+| 深色 960×640 | [菜单](images/m2-01/pin-menu-dark-960.png) | [编辑](images/m2-01/pin-editor-dark-960.png) |
+
+置顶包已更新原 out/AgentX-win32-x64，app.asar SHA-256：9c2d7ce47b2229333a3d34313a895b6d0629e1ae4a37532541f0c0fb842b9cc6。后续打包将替换包体；此值仅标识当前已验证的置顶版本。
+
 ## 当前切片边界
 
 | States | 当前覆盖 |
 | --- | --- |
-| default | 改名菜单已接通；置顶/归档悬停动作待后续循环 |
+| default | 改名与置顶菜单/悬停已接通；归档待后续循环 |
 | editing | 当前改名、失败输入保留、CAS 与取消路径已覆盖 |
 | keyboard | 改名菜单/编辑已覆盖；完整多项菜单及搜索仍待接通 |
-| pinned、archived、archiveBlocked | 待实现与验证 |
+| pinned | 置顶、取消、唯一行及重开已接通；197 项完整回归通过 |
+| archived、archiveBlocked | 待实现与验证 |
 | search、matches、indexing、missingSource、emptyError | 待实现与验证 |
 
-尚不关闭 #21，不解锁依赖它的 #22，不将局部记录作为切片完整 PR。下一步继续置顶、归档/恢复、标题正文搜索与精确历史命中；完整切片再做独立审查、Windows CI、PR 和 m2 集成。
+尚不关闭 #21，不解锁依赖它的 #22，不将局部记录作为切片完整 PR。下一步继续归档/恢复、标题正文搜索与精确历史命中；完整切片再做独立审查、Windows CI、PR 和 m2 集成。
 
 改名版本打包目录为 E:\AgentX\desktop\out\AgentX-win32-x64；app.asar SHA-256 为 72c23b5a07d166974fcda31d74dc052d8c43fb5f50c0ce72863ecd167578de42。本校验只标识本次改名包，后续功能打包会更新，不是安装器或公开发布。

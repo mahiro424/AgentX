@@ -1,7 +1,8 @@
 import type { useWorkspace } from './useWorkspace';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ProjectSummary } from '../../shared/contracts/projects';
+import { TaskPinIcon } from './TaskPinIcon';
+import type { ProjectSummary, OrganizedTaskSummary } from '../../shared/contracts/projects';
 import { TaskStatus, taskStateLabel } from './TaskStatus';
 
 export function ProjectSidebar({ workspace, openWorkbench }: { workspace: ReturnType<typeof useWorkspace>; openWorkbench: () => void }) {
@@ -21,7 +22,13 @@ export function ProjectSidebar({ workspace, openWorkbench }: { workspace: Return
     window.addEventListener('resize', close);
     return () => { document.removeEventListener('pointerdown', outside, true); window.removeEventListener('resize', close); };
   }, [menu]);
+  const pinned = snapshot?.tasks.filter(task => task.pinnedAt !== null)
+    .sort((a, b) => b.pinnedAt!.localeCompare(a.pinnedAt!) || a.taskId.localeCompare(b.taskId)) ?? [];
   return <div className="project-navigation">
+    {!!pinned.length && <section aria-label="置顶会话"><div className="project-group-heading">置顶</div>
+      <ul className="session-list pinned-list">{pinned.map(task => <SessionRow key={task.taskId} task={task} workspace={workspace} openWorkbench={openWorkbench} />)}</ul>
+    </section>}
+    {workspace.taskActionError && <div role="alert" className="error-message">{workspace.taskActionError}<button className="secondary-button" onClick={() => void workspace.load()}>重读会话列表</button></div>}
     <div className="project-group-heading"><span>项目</span><button className="icon-button" aria-label="关联项目" title="关联项目" disabled={choosing} onClick={() => void workspace.choose()}>＋</button></div>
     {loading && <p role="status" className="muted">正在读取项目和会话…</p>}
     {choosing && <p role="status" className="muted">正在选择目录…</p>}
@@ -40,14 +47,9 @@ export function ProjectSidebar({ workspace, openWorkbench }: { workspace: Return
         onClick={event => { const box = event.currentTarget.closest('.project-row')!.getBoundingClientRect(); setMenu({ project, trigger: event.currentTarget, x: Math.min(box.right + 8, innerWidth - 196), y: Math.min(box.top, innerHeight - 64) }); }}>⋯</button>
       <button className="icon-button" title="编辑项目名称" aria-label={`编辑项目名称：${project.displayName}`} onClick={event => workspace.startEditing(project, event.currentTarget)}><PencilIcon /></button></div>
     </div>
-      {!collapsed.has(project.projectId) && !!snapshot.tasks.filter(task => task.projectId === project.projectId).length && <ul className="session-list" aria-label={`${project.displayName}的会话`}>
-        {snapshot.tasks.filter(task => task.projectId === project.projectId).map(task => <li key={task.taskId}><button className="session-row" aria-label={task.title}
-          aria-current={workspace.selectedTaskId === task.taskId ? 'page' : undefined}
-          title={`${task.title}\n${task.directory}\n${taskStateLabel[task.executionState]}\n最近活动：${new Date(task.lastActivityAt).toLocaleString('zh-CN')}`}
-          onContextMenu={event => { event.preventDefault(); workspace.openTaskMenu(task, event.currentTarget, { x: event.clientX, y: event.clientY }); }}
-          onKeyDown={event => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); workspace.openTaskMenu(task, event.currentTarget); } }}
-          onClick={() => { workspace.setSelectedProjectId(project.projectId); workspace.setSelectedTaskId(task.taskId); openWorkbench(); }}>
-          <span className="session-title">{task.title}</span><TaskStatus state={task.executionState} lastActivityAt={task.lastActivityAt} /></button></li>)}
+      {!collapsed.has(project.projectId) && !!snapshot.tasks.filter(task => task.projectId === project.projectId && task.pinnedAt === null).length && <ul className="session-list" aria-label={`${project.displayName}的会话`}>
+        {snapshot.tasks.filter(task => task.projectId === project.projectId && task.pinnedAt === null).map(task =>
+          <SessionRow key={task.taskId} task={task} workspace={workspace} openWorkbench={openWorkbench} />)}
       </ul>}
     </section>)}
     {menu && createPortal(<div ref={menuElement} className="project-menu" role="menu" aria-label="项目操作" style={{ left: menu.x, top: menu.y }} onKeyDown={event => {
@@ -55,6 +57,19 @@ export function ProjectSidebar({ workspace, openWorkbench }: { workspace: Return
       if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) { event.preventDefault(); menuElement.current?.querySelector<HTMLButtonElement>('button')?.focus(); }
     }}><button role="menuitem" onClick={() => { workspace.startEditing(menu.project, menu.trigger); setMenu(null); }}><PencilIcon />编辑名称</button></div>, document.body)}
   </div>;
+}
+
+function SessionRow({ task, workspace, openWorkbench }: { task: OrganizedTaskSummary; workspace: ReturnType<typeof useWorkspace>; openWorkbench: () => void }) {
+  return <li className="session-item"><button className="session-row" aria-label={task.title} data-task-id={task.taskId}
+    aria-current={workspace.selectedTaskId === task.taskId ? 'page' : undefined}
+    title={`${task.title}\n${task.directory}\n${taskStateLabel[task.executionState]}\n最近活动：${new Date(task.lastActivityAt).toLocaleString('zh-CN')}`}
+    onContextMenu={event => { event.preventDefault(); workspace.openTaskMenu(task, event.currentTarget, { x: event.clientX, y: event.clientY }); }}
+    onKeyDown={event => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); workspace.openTaskMenu(task, event.currentTarget); } }}
+    onClick={() => { workspace.setSelectedProjectId(task.projectId); workspace.setSelectedTaskId(task.taskId); openWorkbench(); }}>
+    {task.pinnedAt !== null && <TaskPinIcon />}<span className="session-title">{task.title}</span><span className="session-activity" data-time-only={['idle', 'completed', 'interrupted'].includes(task.executionState)}><TaskStatus state={task.executionState} lastActivityAt={task.lastActivityAt} /></span>
+  </button><div className="session-actions"><button className="icon-button" title={task.pinnedAt === null ? '置顶会话' : '取消置顶会话'}
+    aria-label={`${task.pinnedAt === null ? '置顶会话' : '取消置顶会话'}：${task.title}`} disabled={!!workspace.organizingTaskId}
+    onClick={event => void workspace.pinTask(task, event.currentTarget)}><TaskPinIcon /></button></div></li>;
 }
 
 function PencilIcon() {

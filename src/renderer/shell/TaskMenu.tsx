@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
+import { TaskPinIcon } from './TaskPinIcon';
 import { createPortal } from 'react-dom';
 import type { TaskMenuState } from './useWorkspace';
 
-export function TaskMenu({ menu, onRename, onClose }: { menu: TaskMenuState; onRename: () => void; onClose: (restoreFocus?: boolean) => void }) {
+export function TaskMenu({ menu, onRename, onPin, busy, onClose }: { menu: TaskMenuState; onRename: () => void; onPin: () => void; busy: boolean; onClose: (restoreFocus?: boolean) => void }) {
   const element = useRef<HTMLDivElement>(null);
   useEffect(() => {
     element.current?.querySelector<HTMLButtonElement>('button')?.focus();
@@ -17,9 +18,15 @@ export function TaskMenu({ menu, onRename, onClose }: { menu: TaskMenuState; onR
       if (event.nativeEvent.isComposing) return;
       if (event.key === 'Escape' || event.key === 'Tab') { event.preventDefault(); onClose(); }
       if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
-        event.preventDefault(); element.current?.querySelector<HTMLButtonElement>('button')?.focus();
+        event.preventDefault();
+        const items = Array.from(element.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []);
+        const index = items.indexOf(document.activeElement as HTMLButtonElement);
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 :
+          (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        items[next]?.focus();
       }
     }}>
     <button role="menuitem" onClick={onRename}>重命名会话</button>
+    <button role="menuitem" disabled={busy} onClick={onPin}><TaskPinIcon />{menu.task.pinnedAt === null ? '置顶会话' : '取消置顶会话'}</button>
   </div>, document.body);
 }

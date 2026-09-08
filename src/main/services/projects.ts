@@ -1,9 +1,9 @@
 import { dialog, type BrowserWindow } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { ProjectChoice, ProjectRename, ProjectRecord, ProjectSummary, TaskSummary, WorkspaceSnapshot, TaskRename, OrganizedTaskSummary } from '../../shared/contracts/projects';
+import type { ProjectChoice, ProjectRename, ProjectRecord, ProjectSummary, TaskSummary, WorkspaceSnapshot, TaskRename, TaskPin, OrganizedTaskSummary } from '../../shared/contracts/projects';
 import { associateProject, readWorkspace, renameProject } from '../storage/projects';
-import { renameTask } from '../storage/tasks';
+import { renameTask, setTaskPinned } from '../storage/tasks';
 
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
 
@@ -31,9 +31,19 @@ export class ProjectService {
     const current = this.readCurrentTask();
     return { projects,
       tasks: records.tasks.map(task => current?.taskId === task.taskId && current.projectId === task.projectId && current.directory === task.directory
-        ? { ...task, ...current, title: task.title, organizationRevision: task.organizationRevision }
+        ? { ...task, ...current, title: task.title, organizationRevision: task.organizationRevision, pinnedAt: task.pinnedAt }
         : { ...task, executionState: ['idle', 'completed', 'failed', 'interrupted', 'unconfirmed'].includes(task.executionState) ? task.executionState : 'reconciling' }),
     };
+  }
+
+  setTaskPinned(request: unknown): OrganizedTaskSummary {
+    if (!request || typeof request !== 'object' || Array.isArray(request) || Object.keys(request).length !== 4 ||
+        !('operationId' in request) || !uuid(request.operationId) || !('taskId' in request) || !uuid(request.taskId) ||
+        !('expectedRevision' in request) || !Number.isSafeInteger(request.expectedRevision) || Number(request.expectedRevision) < 0 ||
+        !('pinned' in request) || typeof request.pinned !== 'boolean') throw new Error('会话置顶请求无效');
+    const value = setTaskPinned(this.root, request as TaskPin);
+    if (!value) throw new Error('会话已被其他操作更新或不存在，请刷新后重试置顶操作');
+    return value;
   }
 
   renameTask(request: unknown): OrganizedTaskSummary {
