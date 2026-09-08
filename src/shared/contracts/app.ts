@@ -1,4 +1,5 @@
 import type { ProjectChoice, ProjectOperation, ProjectRename, ProjectRecord, WorkspaceSnapshot } from './projects';
+import type { ExitAnswer, ExitSnapshot } from './lifecycle';
 import type { ExecutionStart, ExecutionContinue, ExecutionControl, ExecutionSnapshot, ExecutionSteer, ExecutionApproval } from './execution';
 import type { TaskSummary } from './projects';
 import type { TaskHistory, TaskHistoryRequest } from './history';
@@ -24,6 +25,9 @@ export interface AppInfo {
 }
 
 export interface AgentXBridge {
+  getExitState(): Promise<ExitSnapshot>;
+  answerExit(value: ExitAnswer): Promise<void>;
+  onExitChanged(listener: () => void): () => void;
   copyOutput(text: string): Promise<void>;
   getTaskResults(value: TaskResultsRequest): Promise<TaskResults>;
   getTaskHistory(value: TaskHistoryRequest): Promise<TaskHistory>;

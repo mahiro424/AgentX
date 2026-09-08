@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { launch } = require('./helpers.cjs');
+const { launch, crashTestApp } = require('./helpers.cjs');
 
 async function seed(app, command = {}, live = false) {
   return app.evaluate(({ app, BrowserWindow, ipcMain }, { repository, command, live }) => {
@@ -77,7 +77,7 @@ test('commandOutput：复制接口只接受有界纯文本，不暴露读取剪�
 });
 
 test('commandOutput：当前命令持续更新，关闭面板或切换页面不发送停止', { timeout: 45000 }, async t => {
-  const { app, page } = await launch(); t.after(() => app.close());
+  const { app, page } = await launch(); t.after(() => crashTestApp(app));
   await seed(app, { output: '第一段\n', status: 'running', exitCode: null, durationMs: null }, true);
   await app.evaluate(({ ipcMain, clipboard }) => {
     globalThis.outputControls = []; globalThis.outputCopies = [];

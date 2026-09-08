@@ -1,5 +1,6 @@
 import { PROJECT_RENAME_CHANNEL, type ProjectRename, type ProjectRecord, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, type ProjectOperation, type ProjectChoice, WORKSPACE_READ_CHANNEL, type WorkspaceSnapshot } from '../shared/contracts/projects';
 import { contextBridge, ipcRenderer } from 'electron';
+import { EXIT_READ_CHANNEL, EXIT_ANSWER_CHANNEL, EXIT_CHANGED_CHANNEL, type ExitAnswer, type ExitSnapshot } from '../shared/contracts/lifecycle';
 import { TASK_RESULTS_READ_CHANNEL, type TaskResults, type TaskResultsRequest } from '../shared/contracts/results';
 import { TASK_HISTORY_READ_CHANNEL, type TaskHistory, type TaskHistoryRequest } from '../shared/contracts/history';
 import { DRAFT_READ_CHANNEL, DRAFT_SAVE_CHANNEL, type DraftScope, type DraftRecord, type DraftSave } from '../shared/contracts/drafts';
@@ -10,6 +11,14 @@ import { APP_INFO_CHANNEL, OUTPUT_COPY_CHANNEL, PREFERENCES_READ_CHANNEL, PREFER
 import { MODEL_SETTINGS_CHANGED_CHANNEL, MODEL_TEST_CHANNEL, type ModelTestRequest, MODEL_SETTINGS_READ_CHANNEL, MODEL_KEY_SAVE_CHANNEL, MODEL_KEY_REVEAL_CHANNEL, MODEL_SETTINGS_VISIBLE_CHANNEL, MODEL_ENABLED_CHANNEL, MODEL_CATALOG_FETCH_CHANNEL, MODEL_SELECTION_CHANNEL, MODEL_ACTIVE_CHANNEL, type ModelSelectionChange, type ActiveModelChange, type ConnectionChange, type KeySubmission, type ModelOperation, type ModelSettings } from '../shared/contracts/models';
 
 const bridge: AgentXBridge = Object.freeze({
+  getExitState: (): Promise<ExitSnapshot> => ipcRenderer.invoke(EXIT_READ_CHANNEL),
+  answerExit: (value: ExitAnswer): Promise<void> => ipcRenderer.invoke(EXIT_ANSWER_CHANNEL, value),
+  onExitChanged: (listener: () => void): (() => void) => {
+    if (typeof listener !== 'function') throw new Error('退出状态监听器无效');
+    const notify = () => listener();
+    ipcRenderer.on(EXIT_CHANGED_CHANNEL, notify);
+    return () => ipcRenderer.removeListener(EXIT_CHANGED_CHANNEL, notify);
+  },
   copyOutput: (text: string): Promise<void> => ipcRenderer.invoke(OUTPUT_COPY_CHANNEL, text),
   getTaskResults: (value: TaskResultsRequest): Promise<TaskResults> => ipcRenderer.invoke(TASK_RESULTS_READ_CHANNEL, value),
   getTaskHistory: (value: TaskHistoryRequest): Promise<TaskHistory> => ipcRenderer.invoke(TASK_HISTORY_READ_CHANNEL, value),

@@ -1,4 +1,5 @@
 import { ProjectEditor } from './shell/ProjectEditor';
+import { ExitDialog } from './shell/ExitDialog';
 import { useWorkspace } from './shell/useWorkspace';
 import { FolderIcon, ProjectSidebar } from './shell/ProjectSidebar';
 import { createRoot } from 'react-dom/client';
@@ -363,6 +364,7 @@ function App() {
         {error && <div role="alert" className="error-message">{error} <button className="secondary-button" onClick={() => void readAppInfo()}>重试</button></div>}
       </div>
     </div>
+    <ExitDialog />
   </div>;
 }
 

@@ -1,6 +1,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { _electron } = require('playwright-core');
+const { once } = require('node:events');
 
 const root = path.resolve(__dirname, '../..');
 const artifacts = path.join(root, '.local-validation/foundation');
@@ -43,4 +44,12 @@ async function launch(existingData) {
   }
 }
 
-module.exports = { launch };
+async function crashTestApp(app) {
+  if (app.process().exitCode !== null) return;
+  const exited = once(app.process(), 'exit');
+  // 仅销毁调用方测试创建的合成未决/损坏实例，不计为产品正常退出通过。
+  await app.evaluate(({ app }) => { setImmediate(() => app.exit(0)); });
+  await exited;
+}
+
+module.exports = { launch, crashTestApp };

@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { launch } = require('./helpers.cjs');
+const { launch, crashTestApp } = require('./helpers.cjs');
 
 test('unconfigured：模型设置解释 Key 配置，返回保留草稿且不要求登录', { timeout: 45000 }, async t => {
   const { app, page } = await launch();
@@ -487,7 +487,7 @@ test('输入与凭据边界：拒绝掩码、越权显隐和旧修订，损坏�
 });
 
 test('保存与读取失败：不支持的数据库版本不清空重建，也不以空模型伪装成功', { timeout: 45000 }, async t => {
-  const { app, page } = await launch(); t.after(() => app.close());
+  const { app, page } = await launch(); t.after(() => crashTestApp(app));
   await page.evaluate(() => window.agentx.saveModelKey({ operationId: crypto.randomUUID(), expectedRevision: 0, apiKey: 'synthetic-db-version' }));
   await app.evaluate(({ app }) => { const { DatabaseSync } = process.getBuiltinModule('node:sqlite'); const db = new DatabaseSync(process.getBuiltinModule('node:path').join(app.getPath('userData'), 'agentx.db')); db.exec('PRAGMA user_version=999'); db.close(); });
   await assert.rejects(page.evaluate(() => window.agentx.getModelSettings()), /不会清空重建/);

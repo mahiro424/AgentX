@@ -22,6 +22,9 @@ export class ExecutionService {
   private preparing = false;
   private error: string | null = null;
   private closing = false;
+  private shutdownPending: Promise<void> | null = null;
+  private stopPending: Promise<void> | null = null;
+  private exitError: string | null = null;
   private preparationDone = Promise.resolve();
   private finishPreparation: (() => void) | null = null;
   private controlOperations = new Set<string>();
@@ -94,11 +97,19 @@ export class ExecutionService {
 
   async stop(input: unknown): Promise<void> {
     const session = this.control(input);
-    try { const pending = session.stop(); this.changed(); await pending; }
-    finally { this.changed(); }
+    return this.stopSession(session);
+  }
+
+  private async stopSession(session: FirstTurnSession): Promise<void> {
+    const pending = session.stop();
+    this.stopPending = pending;
+    this.changed();
+    try { await pending; }
+    finally { if (this.stopPending === pending) this.stopPending = null; this.changed(); }
   }
 
   async steer(input: unknown): Promise<void> {
+    if (this.closing) throw new Error('应用正在退出，不能补充要求；请保留输入');
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 5 ||
         !('text' in input) || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 200000 || input.text.includes('\0')) throw new Error('补充内容无效，请保留输入');
     const { text, ...control } = input;
@@ -108,6 +119,7 @@ export class ExecutionService {
   }
 
   async answer(input: unknown): Promise<void> {
+    if (this.closing) throw new Error('应用正在退出，不能提交审批');
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 6 ||
         !('approvalToken' in input) || typeof input.approvalToken !== 'string' || !input.approvalToken ||
         !('decision' in input) || (input.decision !== 'accept' && input.decision !== 'decline')) throw new Error('审批请求无效；仅支持本次允许或拒绝');
@@ -124,12 +136,51 @@ export class ExecutionService {
     if (this.runtime) { await this.runtime.close(); this.runtime = null; }
   }
 
+  needsExitConfirmation(): boolean {
+    return this.preparing || !!this.runtime || !!this.exitError || readWorkspace(this.root).tasks.some(task =>
+      !['idle', 'completed', 'failed', 'interrupted'].includes(task.executionState));
+  }
+
+  // 仅在用户确认真正退出后调用。终态、后台回收、引擎退出三者均须完成。
+  shutdown(): Promise<void> {
+    if (this.shutdownPending) return this.shutdownPending;
+    this.closing = true;
+    const drain = async () => {
+      await this.preparationDone;
+      if (this.stopPending) await this.stopPending;
+      const task = this.read().task;
+      if (task && ['running', 'waitingApproval', 'waitingInput'].includes(task.executionState)) {
+        await this.stopSession(this.current!.session);
+      }
+      if (readWorkspace(this.root).tasks.some(value => !['idle', 'completed', 'failed', 'interrupted'].includes(value.executionState))) {
+        throw new Error('仍有未决任务，尚未确认轮次与后台进程结束；保留记录，不自动重发或强制退出');
+      }
+      if (this.runtime && task?.threadId) {
+        const remaining = await terminateBackgroundTerminals(this.runtime.transport, task.threadId,
+          new Set(this.current!.session.readItems().filter(item => item.kind === 'command').map(item => item.itemId)));
+        if (remaining) throw new Error('仍有后台终端归属未核实，未终止陌生命令，也未确认可退出');
+      }
+      await this.close();
+      this.exitError = null;
+    };
+    const pending = drain().catch(error => {
+      this.exitError = error instanceof Error ? error.message : '退出结果未确认，请核对任务与进程';
+      this.error = this.exitError;
+      this.closing = false;
+      this.changed();
+      throw error;
+    }).finally(() => { this.shutdownPending = null; });
+    this.shutdownPending = pending;
+    return pending;
+  }
+
   async start(input: unknown) { return this.submit(input, false); }
 
   async continue(input: unknown) { return this.submit(input, true); }
 
   private async submit(input: unknown, continuing: boolean) {
     if (this.closing) throw new Error('应用正在退出，不能发送任务');
+    if (this.exitError) throw new Error(`退出核对尚未完成，不能发送新任务：${this.exitError}`);
     const uuid = (value: unknown): value is string => typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== (continuing ? 8 : 6) ||
         !('taskId' in input) || !uuid(input.taskId) || !('operationId' in input) || !uuid(input.operationId) ||
