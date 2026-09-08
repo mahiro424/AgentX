@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { ThreadStartParams } from '../../../../runtime/generated/codex/v2/ThreadStartParams';
+import type { ThreadResumeParams } from '../../../../runtime/generated/codex/v2/ThreadResumeParams';
 import type { TurnStartParams } from '../../../../runtime/generated/codex/v2/TurnStartParams';
 import type { TurnInterruptParams } from '../../../../runtime/generated/codex/v2/TurnInterruptParams';
 import type { TurnSteerParams } from '../../../../runtime/generated/codex/v2/TurnSteerParams';
@@ -21,6 +22,10 @@ export async function startThread(transport: CodexTransport, directory: string) 
   const params: ThreadStartParams = { model: FLASH_MODEL_ID, modelProvider: 'deepseek', cwd,
     approvalPolicy: 'on-request', approvalsReviewer: 'user', sandbox: 'workspace-write', ephemeral: false };
   const value = record(await transport.call('thread/start', params));
+  return validateThread(value, cwd);
+}
+
+function validateThread(value: Record<string, unknown>, cwd: string) {
   const thread = record(value.thread), sandbox = record(value.sandbox);
   const sameDirectory = (candidate: unknown) => typeof candidate === 'string' && path.isAbsolute(candidate) && path.normalize(candidate) === cwd;
   if (!identifier(thread.id) || !sameDirectory(thread.cwd) || !sameDirectory(value.cwd) ||
@@ -31,6 +36,17 @@ export async function startThread(transport: CodexTransport, directory: string) 
     throw new Error('引擎返回的模型、目录、权限或来源结构与本轮配置不符，拒绝发送任务');
   }
   return { threadId: thread.id, instructionSources: value.instructionSources as string[] };
+}
+
+export async function resumeThread(transport: CodexTransport, threadId: string, directory: string) {
+  if (!identifier(threadId) || !path.isAbsolute(directory)) throw new Error('续轮会话关联或目录无效');
+  const cwd = path.normalize(directory);
+  const params: ThreadResumeParams = { threadId, cwd, model: FLASH_MODEL_ID, modelProvider: 'deepseek',
+    approvalPolicy: 'on-request', approvalsReviewer: 'user', sandbox: 'workspace-write', excludeTurns: true };
+  const value = record(await transport.call('thread/resume', params));
+  const result = validateThread(value, cwd);
+  if (result.threadId !== threadId || record(record(value.thread).status).type !== 'idle') throw new Error('恢复的会话不匹配或并非空闲，未发送新轮次');
+  return result;
 }
 
 export async function startTurn(transport: CodexTransport, threadId: string, text: string) {

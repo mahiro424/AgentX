@@ -2,6 +2,7 @@ import type { TaskSummary } from './projects';
 
 export const EXECUTION_READ_CHANNEL = 'agentx:execution-read';
 export const EXECUTION_START_CHANNEL = 'agentx:execution-start';
+export const EXECUTION_CONTINUE_CHANNEL = 'agentx:execution-continue';
 export const EXECUTION_STOP_CHANNEL = 'agentx:execution-stop';
 export const EXECUTION_STEER_CHANNEL = 'agentx:execution-steer';
 export const EXECUTION_APPROVAL_CHANNEL = 'agentx:execution-approval';
@@ -22,6 +23,8 @@ export interface ExecutionControl {
   threadId: string;
   turnId: string;
 }
+
+export interface ExecutionContinue extends ExecutionStart { threadId: string; expectedTurnId: string }
 
 export interface ExecutionSteer extends ExecutionControl { text: string }
 export interface ExecutionApproval extends ExecutionControl { approvalToken: string; decision: 'accept' | 'decline' }

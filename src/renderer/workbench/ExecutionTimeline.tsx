@@ -1,12 +1,14 @@
-import type { ExecutionItem, ApprovalItem, ExecutionPlan } from '../../shared/contracts/execution';
+import type { ApprovalItem, CommandItem, ExecutionPlan } from '../../shared/contracts/execution';
+import type { HistoryItem } from '../../shared/contracts/history';
 import { ApprovalCard } from './ApprovalCard';
 
 const labels = { running: '进行中', completed: '已结束', failed: '失败', declined: '已拒绝' };
 
-export function ExecutionTimeline({ items, approvals, pending, canAnswer, onAnswer, plan, active, inputText }: { items: ExecutionItem[]; approvals: ApprovalItem[]; plan?: ExecutionPlan; active: boolean; inputText?: string;
+export function ExecutionTimeline({ items, approvals, pending, canAnswer, onAnswer, plan, active, inputText, onOpenOutput }: { items: HistoryItem[]; approvals: ApprovalItem[]; plan?: ExecutionPlan; active: boolean; inputText?: string;
+  onOpenOutput?: (item: CommandItem, trigger: HTMLButtonElement) => void;
   pending: Set<string>; canAnswer: boolean; onAnswer: (token: string, decision: 'accept' | 'decline') => void }) {
   const card = (approval: ApprovalItem) => <ApprovalCard key={approval.approvalToken} approval={approval}
-    item={items.find(item => item.itemId === approval.itemId)} disabled={!canAnswer || pending.has(approval.approvalToken)} onAnswer={onAnswer} />;
+    item={items.find(item => item.itemId === approval.itemId && item.kind !== 'userMessage') as Exclude<HistoryItem, { kind: 'userMessage' }> | undefined} disabled={!canAnswer || pending.has(approval.approvalToken)} onAnswer={onAnswer} />;
   return <section className="execution-timeline" aria-label="执行过程">
     {inputText !== undefined && <section className="execution-message execution-user-message" aria-label="已提交的要求">{inputText}</section>}
     {plan && <details className="execution-tool" aria-label="引擎计划" open>
@@ -16,13 +18,16 @@ export function ExecutionTimeline({ items, approvals, pending, canAnswer, onAnsw
       <ol>{plan.plan.map((step, index) => <li key={index}><span>{step.step}</span> <span className="muted">· {step.status === 'completed' ? '已完成'
         : step.status === 'pending' ? '待执行' : active ? '进行中' : '最后记录：进行中'}</span></li>)}</ol>
     </details>}
-    {items.map(item => <div key={item.itemId}>{item.kind === 'message'
+    {items.map(item => <div key={item.itemId}>{item.kind === 'userMessage'
+      ? <section className="execution-message execution-user-message" aria-label="已提交的要求">{item.text}</section>
+      : item.kind === 'message'
       ? <p className="execution-message" key={item.itemId}>{item.text}</p>
       : item.kind === 'command' ? <details className="execution-tool" key={item.itemId}>
-        <summary><span>{item.command}</span><span className={item.status === 'failed' ? 'error-message' : 'muted'}>{labels[item.status]}</span></summary>
+        <summary><span>{item.command}</span><span className={item.status === 'failed' ? 'error-message' : 'muted'}>{!active && item.status === 'running' ? '最后记录：进行中（未核对）' : labels[item.status]}</span></summary>
         <p className="muted">目录：{item.directory}</p>
         <pre>{item.output ?? '尚无命令输出'}</pre>
         <p className="muted">退出码：{item.exitCode ?? '尚未返回'} · 耗时：{item.durationMs === null ? '尚未返回' : `${item.durationMs} ms`}</p>
+        {onOpenOutput && <button className="secondary-button" onClick={event => onOpenOutput(item, event.currentTarget)}>查看执行输出</button>}
       </details> : <details className="execution-tool" key={item.itemId}>
         <summary><span>文件修改 · {item.changes.length} 项</span><span className={item.status === 'failed' ? 'error-message' : 'muted'}>{labels[item.status]}</span></summary>
         <p className="muted">以下为引擎报告，实际文件变化尚待核对。</p>

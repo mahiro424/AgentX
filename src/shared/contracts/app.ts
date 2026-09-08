@@ -1,12 +1,15 @@
 import type { ProjectChoice, ProjectOperation, ProjectRename, ProjectRecord, WorkspaceSnapshot } from './projects';
-import type { ExecutionStart, ExecutionControl, ExecutionSnapshot, ExecutionSteer, ExecutionApproval } from './execution';
+import type { ExecutionStart, ExecutionContinue, ExecutionControl, ExecutionSnapshot, ExecutionSteer, ExecutionApproval } from './execution';
 import type { TaskSummary } from './projects';
+import type { TaskHistory, TaskHistoryRequest } from './history';
+import type { TaskResults, TaskResultsRequest } from './results';
 import type { DraftScope, DraftRecord, DraftSave } from './drafts';
 import type { ModelTestRequest, ActiveModelChange, ConnectionChange, KeySubmission, ModelOperation, ModelSelectionChange, ModelSettings } from './models';
 
 export const APP_INFO_CHANNEL = 'agentx:app-info';
 export const PREFERENCES_READ_CHANNEL = 'agentx:preferences-read';
 export const PREFERENCES_SAVE_CHANNEL = 'agentx:preferences-save';
+export const OUTPUT_COPY_CHANNEL = 'agentx:output-copy';
 
 export interface Preferences {
   theme: 'system' | 'light' | 'dark';
@@ -21,10 +24,14 @@ export interface AppInfo {
 }
 
 export interface AgentXBridge {
+  copyOutput(text: string): Promise<void>;
+  getTaskResults(value: TaskResultsRequest): Promise<TaskResults>;
+  getTaskHistory(value: TaskHistoryRequest): Promise<TaskHistory>;
   getDraft(value: DraftScope): Promise<DraftRecord>;
   saveDraft(value: DraftSave): Promise<DraftRecord>;
   getExecution(): Promise<ExecutionSnapshot>;
   startExecution(value: ExecutionStart): Promise<TaskSummary>;
+  continueExecution(value: ExecutionContinue): Promise<TaskSummary>;
   stopExecution(value: ExecutionControl): Promise<void>;
   steerExecution(value: ExecutionSteer): Promise<void>;
   answerExecutionApproval(value: ExecutionApproval): Promise<void>;

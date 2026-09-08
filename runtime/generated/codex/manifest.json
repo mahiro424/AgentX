@@ -142,6 +142,14 @@
     {
       "path": "v2/FileChangeRequestApprovalResponse.ts",
       "sha256": "527a9af90f753e2b7f1852415523443fc9745376bb2c4b0b735f900c8da8fc71"
+    },
+    {
+      "path": "v2/ThreadReadParams.ts",
+      "sha256": "c24743cb5655b4c71a853a2a290412d78e1a27e0278f2a0cde9bd9d9b78118a8"
+    },
+    {
+      "path": "v2/ThreadResumeParams.ts",
+      "sha256": "02f6d2d99d1cfb42ca2ef4647d731fee0b3801c25a61451b41f041b97adff649"
     }
   ]
 }

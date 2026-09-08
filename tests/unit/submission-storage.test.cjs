@@ -23,6 +23,10 @@ test('轮次落盘：错误操作或 thread 不能确认任务，失败不留下
   assert.deepEqual(readWorkspace(root).tasks, [{ ...task, threadId: 'thread-1' }]);
   assert.equal(readSubmissionIntent(root, intent.operationId).phase, 'sent');
   acknowledgeSubmission(root, task.taskId, intent.operationId, 'thread-1', 'turn-1');
+  const { readTurnOperation } = require('../../src/main/storage/tasks.ts');
+  assert.equal(readTurnOperation(root, task.taskId, 'turn-1'), intent.operationId);
+  assert.equal(readTurnOperation(root, task.taskId, 'foreign-turn'), null);
+  assert.equal(readTurnOperation(root, randomUUID(), 'turn-1'), null);
   assert.equal(readSubmissionIntent(root, intent.operationId).phase, 'acknowledged');
   assert.deepEqual(readWorkspace(root).tasks, [{ ...task, executionState: 'running', threadId: 'thread-1', turnId: 'turn-1' }]);
 });
@@ -93,7 +97,7 @@ test('发送意图迁移：v5 项目保留，升级前快照仍是可读取的 v
   const previous = new DatabaseSync(path.join(root, 'agentx.db'));
   try { previous.exec('DROP TABLE drafts; DROP TABLE execution_intents; PRAGMA user_version=5'); } finally { previous.close(); }
   assert.deepEqual(readWorkspace(root).projects, [project]);
-  const backups = (await fs.readdir(root)).filter(name => /^agentx\.before-v7\..+\.db$/.test(name));
+  const backups = (await fs.readdir(root)).filter(name => /^agentx\.before-v8\..+\.db$/.test(name));
   assert.equal(backups.length, 1);
   const backup = new DatabaseSync(path.join(root, backups[0]), { readOnly: true });
   try {
@@ -102,6 +106,6 @@ test('发送意图迁移：v5 项目保留，升级前快照仍是可读取的 v
     assert.equal(backup.prepare("SELECT 1 FROM sqlite_master WHERE name='execution_intents'").get(), undefined);
   } finally { backup.close(); }
   const current = new DatabaseSync(path.join(root, 'agentx.db'), { readOnly: true });
-  try { assert.equal(current.prepare('PRAGMA user_version').get().user_version, 7); }
+  try { assert.equal(current.prepare('PRAGMA user_version').get().user_version, 8); }
   finally { current.close(); }
 });

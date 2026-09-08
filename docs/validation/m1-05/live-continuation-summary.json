@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-08",
+  "engine": "codex 0.153.4",
+  "patches": 0,
+  "model": "deepseek-v4-flash",
+  "source": "真实打包 Electron UI + 原生 Main/固定引擎，无执行/历史替身",
+  "passed": true,
+  "batch": {
+    "topLevelTurnLimit": 5,
+    "alreadyUsed": 3,
+    "usedThisValidation": 2,
+    "remaining": 0
+  },
+  "taskId": "e661e32b-aa89-4636-aa8f-cee34b8dfe35",
+  "threadId": "01a08049-85b9-7221-858b-d344b8fef800",
+  "turns": [
+    {
+      "turnId": "01a08100-0a35-7db2-84ea-c7f3deb67102",
+      "expectedTurnId": "01a08049-8677-7d62-a873-057d1169c443",
+      "operationId": "da90298a-958f-45e6-83cb-8dd0c4322d47",
+      "state": "completed",
+      "changedFiles": [
+        "math.cjs",
+        "text.cjs"
+      ],
+      "independentTestExitCode": 0,
+      "extraWhitespaceTestExitCode": null,
+      "oldHistoryUnchanged": true,
+      "preservedFilesUnchanged": true,
+      "approvalCount": 1,
+      "commandExitCodes": [
+        0,
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "sandboxFailure": "node --test 子进程 spawn EPERM；保留失败记录，经逐条原生审批后指定命令退出 0",
+      "passed": true
+    },
+    {
+      "turnId": "01a08102-6cb8-7ea2-98fd-186fa4a20276",
+      "expectedTurnId": "01a08100-0a35-7db2-84ea-c7f3deb67102",
+      "operationId": "71f47225-b6a7-4044-8674-4bcc540a723e",
+      "state": "completed",
+      "changedFiles": [
+        "text.cjs"
+      ],
+      "independentTestExitCode": 0,
+      "extraWhitespaceTestExitCode": 0,
+      "oldHistoryUnchanged": true,
+      "preservedFilesUnchanged": true,
+      "approvalCount": 1,
+      "commandExitCodes": [
+        1,
+        0,
+        0
+      ],
+      "sandboxFailure": "node --test 子进程 spawn EPERM；保留失败记录，经逐条原生审批后指定命令退出 0",
+      "passed": true
+    }
+  ],
+  "reopened": {
+    "turnCount": 3,
+    "noReplay": true
+  }
+}

@@ -189,3 +189,97 @@ test('执行入口：固定资源缺失不发送任务，保留明确失败且�
   assert.deepEqual(engineFiles, ['models.json']);
   assert.equal((await fs.readFile(path.join(root, 'engine', 'codex', 'models.json'), 'utf8')).includes('synthetic-no-network-key'), false);
 });
+
+
+test('产品历史读取：只接受 taskId，从产品记录定位历史，无密钥也能读取已结束会话', async t => {
+  const { ExecutionService } = require('../../src/main/services/execution.ts');
+  const boundary = require('../../src/main/runtime/codex/process.ts');
+  const { associateProject } = require('../../src/main/storage/projects.ts');
+  const { createTaskRecord } = require('../../src/main/storage/tasks.ts');
+  const root = await fs.mkdtemp(path.resolve('.local-validation/m1-05/product-history-'));
+  const project = associateProject(root, root).project;
+  const taskId = randomUUID(), now = new Date().toISOString();
+  createTaskRecord(root, { taskId, projectId: project.projectId, directory: root, title: '已结束任务',
+    executionState: 'completed', threadId: 'history-thread', turnId: 'history-turn', lastActivityAt: now, observedAt: now });
+  const calls = []; let closed = 0, reportedStatus = 'completed';
+  t.mock.method(boundary, 'openCodex', async options => {
+    assert.equal(options.environment.AGENTX_API_KEY, undefined);
+    assert.equal(options.workingDirectory, root);
+    return { transport: { call: async (method, params) => {
+      calls.push({ method, params });
+      return { thread: { id: 'history-thread', cwd: root, turns: [{ id: 'history-turn', status: reportedStatus, itemsView: 'full', items: [], error: null }] } };
+    } }, close: async () => { closed++; } };
+  });
+  const service = new ExecutionService(root, root, { captureExecution: async () => assert.fail('历史不读取凭据') });
+  t.after(() => service.close());
+  const history = await service.readHistory({ taskId });
+  assert.equal(history.taskId, taskId);
+  assert.equal(history.threadId, 'history-thread');
+  assert.equal(history.turns[0].turnId, 'history-turn');
+  assert.equal(closed, 1);
+  assert.deepEqual(calls, [{ method: 'thread/read', params: { threadId: 'history-thread', includeTurns: true } }]);
+  assert.equal(service.read().task, null);
+  await assert.rejects(service.readHistory({ taskId, threadId: 'foreign-thread' }), /无效/);
+  await assert.rejects(service.readHistory({ taskId: randomUUID() }), /不存在/);
+  assert.equal(calls.length, 1);
+  reportedStatus = 'inProgress';
+  await assert.rejects(service.readHistory({ taskId }), /历史.*状态.*不一致/);
+});
+
+
+test('首次发送基线：引擎收到 turn/start 前，原始文件已按同一操作持久化', async t => {
+  const { ExecutionService } = require('../../src/main/services/execution.ts');
+  const boundary = require('../../src/main/runtime/codex/process.ts');
+  const { associateProject } = require('../../src/main/storage/projects.ts');
+  const { readWorkspaceBaseline } = require('../../src/main/storage/results.ts');
+  const root = await fs.mkdtemp(path.resolve('.local-validation/m1-05/baseline-submit-'));
+  const directory = path.join(root, 'project'); await fs.mkdir(directory);
+  await fs.writeFile(path.join(directory, 'main.txt'), '执行前人工内容');
+  const project = associateProject(root, directory).project;
+  const request = { taskId: randomUUID(), operationId: randomUUID(), projectId: project.projectId, modelId: 'deepseek-v4-flash', configRevision: 1, text: '合成修改要求' };
+  const calls = [];
+  t.mock.method(boundary, 'openExecutionCodex', async () => ({ transport: { call: async method => {
+    calls.push(method);
+    if (method === 'thread/start') return { thread: { id: 'baseline-thread', cwd: directory }, cwd: directory,
+      model: 'deepseek-v4-flash', modelProvider: 'deepseek', approvalPolicy: 'on-request', approvalsReviewer: 'user',
+      instructionSources: [], sandbox: { type: 'workspaceWrite', writableRoots: [], networkAccess: false } };
+    assert.equal(method, 'turn/start');
+    const baseline = await readWorkspaceBaseline(root, request);
+    assert.equal(baseline.snapshot.files.find(file => file.path === 'main.txt').text, '执行前人工内容');
+    await fs.writeFile(path.join(directory, 'main.txt'), '执行后的合成内容');
+    return { turn: { id: 'baseline-turn' } };
+  } }, close: async () => {} }));
+  const service = new ExecutionService(root, root, { captureExecution: async () => ({ modelId: 'deepseek-v4-flash', configRevision: 1, credentialRef: randomUUID(), apiKey: 'synthetic-baseline-key' }) });
+  t.after(() => service.close());
+  await service.start(request);
+  assert.deepEqual(calls, ['thread/start', 'turn/start']);
+  const saved = await readWorkspaceBaseline(root, request);
+  assert.equal(saved.snapshot.files.find(file => file.path === 'main.txt').text, '执行前人工内容');
+  assert.doesNotMatch(JSON.stringify(saved), /synthetic-baseline-key/);
+});
+
+test('首次发送基线：保存失败不派发任务，回收引擎并保留可见错误', async t => {
+  const { ExecutionService } = require('../../src/main/services/execution.ts');
+  const boundary = require('../../src/main/runtime/codex/process.ts');
+  const { associateProject, readWorkspace } = require('../../src/main/storage/projects.ts');
+  const root = await fs.mkdtemp(path.resolve('.local-validation/m1-05/baseline-failure-'));
+  const directory = path.join(root, 'project'); await fs.mkdir(directory);
+  await fs.writeFile(path.join(directory, 'main.txt'), '原有人工内容');
+  await fs.writeFile(path.join(root, 'results'), '合成目录冲突，禁止覆盖');
+  const project = associateProject(root, directory).project;
+  let closed = 0, calls = 0;
+  t.mock.method(boundary, 'openExecutionCodex', async () => ({ transport: { call: async () => {
+    calls++; assert.fail('基线未保存，不允许派发任何任务 RPC');
+  } }, close: async () => { closed++; } }));
+  const service = new ExecutionService(root, root, { captureExecution: async () => ({ modelId: 'deepseek-v4-flash', configRevision: 1, credentialRef: randomUUID(), apiKey: 'synthetic-baseline-key' }) });
+  t.after(() => service.close());
+  await assert.rejects(service.start({ taskId: randomUUID(), operationId: randomUUID(), projectId: project.projectId,
+    modelId: 'deepseek-v4-flash', configRevision: 1, text: '不应发送的合成任务' }), /结果目录/);
+  assert.equal(calls, 0);
+  assert.equal(closed, 1);
+  assert.equal(service.read().preparing, false);
+  assert.match(service.read().error, /结果目录/);
+  assert.deepEqual(readWorkspace(root).tasks, []);
+  assert.equal(await fs.readFile(path.join(directory, 'main.txt'), 'utf8'), '原有人工内容');
+  assert.equal(await fs.readFile(path.join(root, 'results'), 'utf8'), '合成目录冲突，禁止覆盖');
+});

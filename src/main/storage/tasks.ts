@@ -113,8 +113,8 @@ export function acknowledgeSubmission(root: string, taskId: string, operationId:
     const task = database.prepare(`UPDATE tasks SET turn_id=?, execution_state='running'
       WHERE task_id=? AND thread_id=? AND turn_id IS NULL AND execution_state='submitting'`).run(turnId, taskId, threadId);
     if (task.changes !== 1) throw new Error('invalid-turn-binding');
-    const intent = database.prepare(`UPDATE execution_intents SET phase='acknowledged'
-      WHERE operation_id=? AND task_id=? AND phase='sent'`).run(operationId, taskId);
+    const intent = database.prepare(`UPDATE execution_intents SET phase='acknowledged', turn_id=?
+      WHERE operation_id=? AND task_id=? AND phase='sent' AND turn_id IS NULL`).run(turnId, operationId, taskId);
     if (intent.changes !== 1) throw new Error('invalid-submission-transition');
     database.exec('COMMIT');
   });
@@ -126,6 +126,32 @@ export function readTaskRecords(database: DatabaseSync): TaskSummary[] {
     lastActivityAt: row.last_activity_at as string, observedAt: row.observed_at as string, executionState: row.execution_state as TaskSummary['executionState'],
     threadId: row.thread_id as string | null, turnId: row.turn_id as string | null,
   }));
+}
+
+export function beginTaskContinuation(root: string, previous: TaskSummary, intent: SubmissionInput): void {
+  validateTask(previous); validateSubmission(intent);
+  if (!previous.threadId || !previous.turnId || !['completed', 'failed', 'interrupted'].includes(previous.executionState)) throw new Error('invalid-continuation');
+  const now = new Date(Math.max(Date.now(), Date.parse(previous.observedAt))).toISOString();
+  withDatabase(root, database => {
+    database.exec('BEGIN IMMEDIATE');
+    const task = database.prepare(`UPDATE tasks SET execution_state='submitting', turn_id=NULL, observed_at=?, last_activity_at=?
+      WHERE task_id=? AND thread_id=? AND turn_id=? AND execution_state=? AND project_id=? AND directory=?
+      AND NOT EXISTS (SELECT 1 FROM execution_intents WHERE task_id=? AND phase<>'settled')`)
+      .run(now, now, previous.taskId, previous.threadId, previous.turnId, previous.executionState, previous.projectId, previous.directory, previous.taskId);
+    if (task.changes !== 1) throw new Error('invalid-continuation-binding');
+    database.prepare(`INSERT INTO execution_intents
+      (operation_id,task_id,input_text,model_id,config_revision,credential_ref,created_at,phase) VALUES (?,?,?,?,?,?,?,'prepared')`)
+      .run(intent.operationId, previous.taskId, intent.text, intent.modelId, intent.configRevision, intent.credentialRef, now);
+    database.exec('COMMIT');
+  });
+}
+
+// 不按“最新时间”猜测轮次归属；老版本缺失绑定的记录保持未知。
+export function readTurnOperation(root: string, taskId: string, turnId: string): string | null {
+  return withDatabase(root, database => {
+    const row = database.prepare('SELECT operation_id FROM execution_intents WHERE task_id=? AND turn_id=?').get(taskId, turnId);
+    return row ? row.operation_id as string : null;
+  });
 }
 
 export function settleTaskTurn(root: string, taskId: string, operationId: string, threadId: string, turnId: string,

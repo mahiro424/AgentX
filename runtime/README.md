@@ -15,11 +15,11 @@ M1 使用未经修改的官方 Codex `0.153.4` Windows x64 二进制，默认零
 
 ## 固定协议类型
 
-`generated/codex/` 按实际接入方法采用固定 `0.153.4` 的 stable TypeScript 生成文件；目前包含握手、`ThreadStartParams`、`TurnStartParams`、`ConfigReadParams`、`TurnInterruptParams`、`TurnSteerParams`、命令/文件审批响应及依赖，共 35 个文件。文件逐字节来自 G0 固定版本生成结果，没有手工改写。`manifest.json` 记录生成批次、版本和各文件 SHA-256。新增接口继续采用同版本输出，不用最新网页类型替代；不在 Renderer 消费引擎生成类型。
+`generated/codex/` 按实际接入方法采用固定 `0.153.4` 的 stable TypeScript 生成文件；目前包含握手、`ThreadStartParams`、`ThreadReadParams`、`ThreadResumeParams`、`TurnStartParams`、`ConfigReadParams`、`TurnInterruptParams`、`TurnSteerParams`、命令/文件审批响应及依赖，共 37 个文件。文件逐字节来自 G0 固定版本生成结果，没有手工改写。`manifest.json` 记录生成批次、版本和各文件 SHA-256。新增接口继续采用同版本输出，不用最新网页类型替代；不在 Renderer 消费引擎生成类型。
 
 Main 的 `runtime/codex/initialize.ts` 使用这些类型构造请求，并在运行时核对必要返回字段、Windows 平台和预期 CODEX_HOME。目录或平台不匹配则关闭逻辑连接，不发送 `initialized`，不继续提交任务。二进制版本信任仍来自执行前的固定资源校验，不能把 `userAgent` 字符串当作二进制身份认证。
 
-`runtime/codex/execution.ts` 构造固定 Flash、用户审批的首次 thread/turn 请求，只返回已核验的关联和指令来源列表；不会把请求应答当成轮次终态。返回类型尚未整套引入，当前检查实际消费的必要字段，不声称完整 schema 校验。项目目录的实时可用性、原子落盘、事件归属和失败核对仍由待接入的 Main 执行协调器负责。
+`runtime/codex/execution.ts` 构造固定 Flash、用户审批的首次 thread/turn 及原 thread 恢复请求，只返回已核验的关联和指令来源列表；不会把请求应答当成轮次终态。返回类型尚未整套引入，当前检查实际消费的必要字段，不声称完整 schema 校验。项目目录的实时可用性、原子落盘、事件归属和失败核对由 Main 执行协调器负责，具体测试和未完成边界见 M1-04 / M1-05 验证记录。
 
 ## Flash 运行配置
 

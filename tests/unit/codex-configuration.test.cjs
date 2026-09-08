@@ -59,3 +59,14 @@ test('引擎配置：其他模型在落盘前拒绝，已有不同目录不被�
   await assert.rejects(prepareCodexConfiguration(root, { modelId: 'deepseek-v4-flash', apiKey: 'synthetic-key' }, {}), /未覆盖/);
   assert.equal(await fs.readFile(file, 'utf8'), '保留原有内容');
 });
+
+
+test('历史配置：无需模型凭据，环境不继承任何 Key，固定本地不可执行连接', async () => {
+  const { prepareCodexHistoryConfiguration } = require('../../src/main/runtime/codex/configuration.ts');
+  const base = path.resolve('.local-validation/m1-05'); await fs.mkdir(base, { recursive: true });
+  const root = await fs.mkdtemp(path.join(base, 'history-config-'));
+  const prepared = await prepareCodexHistoryConfiguration(root, { PATH: 'C:\\Windows', AGENTX_API_KEY: 'private-key', OPENAI_API_KEY: 'private-key' });
+  assert.deepEqual(Object.keys(prepared.environment), ['PATH']);
+  assert.ok(prepared.overrides.includes('model_providers.deepseek.base_url="http://127.0.0.1:9"'));
+  assert.doesNotMatch(JSON.stringify(prepared), /private-key/);
+});

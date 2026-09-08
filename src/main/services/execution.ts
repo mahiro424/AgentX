@@ -2,13 +2,17 @@ import type { TaskSummary } from '../../shared/contracts/projects';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { readWorkspace } from '../storage/projects';
-import { beginTaskSubmission, markSubmissionDispatched, markSubmissionUncertain, bindSubmissionThread, acknowledgeSubmission, settleTaskTurn, beginTaskStop, updateApprovalWait, readSubmissionIntent } from '../storage/tasks';
+import { captureWorkspace, captureGitState } from './workspace-results';
+import { saveWorkspaceBaseline } from '../storage/results';
+import { beginTaskSubmission, beginTaskContinuation, markSubmissionDispatched, markSubmissionUncertain, bindSubmissionThread, acknowledgeSubmission, settleTaskTurn, beginTaskStop, updateApprovalWait, readSubmissionIntent } from '../storage/tasks';
 import { parseApprovalRequest, answerApproval, type ApprovalRequest } from '../runtime/codex/approvals';
-import { startThread, startTurn, interruptTurn, steerTurn, terminateBackgroundTerminals } from '../runtime/codex/execution';
+import { startThread, resumeThread, startTurn, interruptTurn, steerTurn, terminateBackgroundTerminals } from '../runtime/codex/execution';
 import type { CodexTransport } from '../runtime/codex/transport';
 import type { ModelService } from './models';
-import { prepareCodexConfiguration } from '../runtime/codex/configuration';
-import { openExecutionCodex } from '../runtime/codex/process';
+import { prepareCodexConfiguration, prepareCodexHistoryConfiguration } from '../runtime/codex/configuration';
+import { openExecutionCodex, openCodex } from '../runtime/codex/process';
+import { readThreadHistory } from '../runtime/codex/history';
+import type { TaskHistory } from '../../shared/contracts/history';
 import { FLASH_MODEL_ID } from '../../shared/contracts/models';
 import type { ExecutionItem, ExecutionSnapshot, ExecutionControl, ExecutionPlan } from '../../shared/contracts/execution';
 import { parseMessageEvent, parseCommandEvent, parseFileChangeEvent, parsePlanEvent } from '../runtime/codex/events';
@@ -23,6 +27,7 @@ export class ExecutionService {
   private controlOperations = new Set<string>();
   private runtime: Awaited<ReturnType<typeof openExecutionCodex>> | null = null;
   private current: { taskId: string; operationId: string; session: FirstTurnSession } | null = null;
+  private historyReads = new Set<Promise<TaskHistory>>();
 
   constructor(private readonly root: string, private readonly resourcesDirectory: string,
     private readonly models: Pick<ModelService, 'captureExecution'>, private readonly onChange: () => void = () => {}) {}
@@ -35,6 +40,37 @@ export class ExecutionService {
       task: this.current ? readWorkspace(this.root).tasks.find(task => task.taskId === this.current!.taskId) ?? null : null,
       operationId: this.current?.operationId ?? null, items: this.current?.session.readItems() ?? [],
       approvals: this.current?.session.readApprovals() ?? [], error: this.error, ...(plan ? { plan } : {}), ...(intent ? { inputText: intent.text } : {}) };
+  }
+
+  async readHistory(input: unknown): Promise<TaskHistory> {
+    if (this.closing) throw new Error('应用正在退出，不能读取历史');
+    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 1 ||
+        !('taskId' in input) || typeof input.taskId !== 'string' || !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(input.taskId)) throw new Error('历史读取请求无效');
+    const task = readWorkspace(this.root).tasks.find(value => value.taskId === input.taskId);
+    if (!task) throw new Error('任务不存在，无法读取历史');
+    if (!task.threadId || !task.turnId || !['completed', 'failed', 'interrupted'].includes(task.executionState)) throw new Error('本阶段仅能读取已结束轮次；未决任务须先核对状态');
+    const load = async (): Promise<TaskHistory> => {
+      const read = async (transport: CodexTransport) => {
+        const history = await readThreadHistory(transport, task.threadId!, task.directory);
+        const latest = history.turns.find(turn => turn.turnId === task.turnId);
+        if (!latest) throw new Error('历史缺少产品记录的轮次，不能显示为空会话');
+        if (latest.status !== task.executionState || history.turns.some(turn => turn.status === 'inProgress')) {
+          throw new Error('历史与产品记录的轮次状态不一致，需核对；不会自动重发任务');
+        }
+        return { taskId: task.taskId, ...history };
+      };
+      if (this.runtime) return read(this.runtime.transport);
+      const configuration = await prepareCodexHistoryConfiguration(this.root);
+      const runtime = await openCodex({ resourcesDirectory: this.resourcesDirectory, workingDirectory: this.root, ...configuration }, {
+        notification() {}, request() { throw new Error('只读历史意外请求执行权限'); }, disconnected() {},
+      });
+      try { return await read(runtime.transport); }
+      finally { await runtime.close(); }
+    };
+    const pending = load();
+    this.historyReads.add(pending);
+    try { return await pending; }
+    finally { this.historyReads.delete(pending); }
   }
 
   private changed(): void {
@@ -83,14 +119,19 @@ export class ExecutionService {
 
   async close(): Promise<void> {
     this.closing = true;
+    await Promise.allSettled(this.historyReads);
     await this.preparationDone;
     if (this.runtime) { await this.runtime.close(); this.runtime = null; }
   }
 
-  async start(input: unknown) {
+  async start(input: unknown) { return this.submit(input, false); }
+
+  async continue(input: unknown) { return this.submit(input, true); }
+
+  private async submit(input: unknown, continuing: boolean) {
     if (this.closing) throw new Error('应用正在退出，不能发送任务');
     const uuid = (value: unknown): value is string => typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
-    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 6 ||
+    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== (continuing ? 8 : 6) ||
         !('taskId' in input) || !uuid(input.taskId) || !('operationId' in input) || !uuid(input.operationId) ||
         !('projectId' in input) || !uuid(input.projectId) || !('modelId' in input) || input.modelId !== FLASH_MODEL_ID ||
         !('configRevision' in input) || !Number.isSafeInteger(input.configRevision) || Number(input.configRevision) < 0 ||
@@ -100,10 +141,14 @@ export class ExecutionService {
     const request = { taskId: input.taskId, operationId: input.operationId, projectId: input.projectId,
       text: input.text, configRevision: Number(input.configRevision) };
     const workspace = readWorkspace(this.root);
+    const previous = continuing ? workspace.tasks.find(task => task.taskId === request.taskId) : undefined;
+    if (continuing && (!('threadId' in input) || !('expectedTurnId' in input) || !previous?.threadId || !previous.turnId ||
+        previous.threadId !== input.threadId || previous.turnId !== input.expectedTurnId || previous.projectId !== request.projectId ||
+        !['completed', 'failed', 'interrupted'].includes(previous.executionState))) throw new Error('原会话轮次已变化或尚未确认结束，请重读状态；不会自动重发');
     if (this.preparing || workspace.tasks.some(task => !['idle', 'completed', 'failed', 'interrupted', 'unconfirmed'].includes(task.executionState))) {
       throw new Error('存在准备中、活动或未决任务；不会排队或自动重发');
     }
-    if (workspace.tasks.some(task => task.taskId === request.taskId) || readSubmissionIntent(this.root, request.operationId)) throw new Error('任务或发送操作已使用，请读取原记录，不能重复发送');
+    if ((!continuing && workspace.tasks.some(task => task.taskId === request.taskId)) || readSubmissionIntent(this.root, request.operationId)) throw new Error('任务或发送操作已使用，请读取原记录，不能重复发送');
     const project = workspace.projects.find(value => value.projectId === request.projectId);
     if (!project) throw new Error('项目未关联，未开始执行');
     this.preparing = true;
@@ -116,13 +161,14 @@ export class ExecutionService {
       // 保存的路径必须仍指向用户原先关联的普通目录，不接受 Renderer 指定任意 cwd。
       if (await fs.realpath(project.directory) !== project.directory || !(await fs.stat(project.directory)).isDirectory()) throw new Error('项目目录已变化，未开始执行');
       const directory = await fs.opendir(project.directory); await directory.close();
+      await Promise.allSettled(this.historyReads);
       if (this.runtime) {
         await this.runtime.close();
         this.runtime = null;
       }
       const configuration = await prepareCodexConfiguration(this.root, snapshot);
       const now = new Date().toISOString();
-      const task: TaskSummary = { taskId: request.taskId, projectId: project.projectId, directory: project.directory,
+      const task: TaskSummary = previous ?? { taskId: request.taskId, projectId: project.projectId, directory: project.directory,
         title: request.text.replace(/[\u0000-\u001f\u007f]/gu, ' ').trim().slice(0, 120),
         lastActivityAt: now, observedAt: now, executionState: 'submitting', threadId: null, turnId: null };
       const intent = { operationId: request.operationId, text: request.text, modelId: snapshot.modelId,
@@ -139,6 +185,10 @@ export class ExecutionService {
           this.changed();
         },
       });
+      if (this.closing) throw new Error('应用正在退出，未发送任务');
+      const baseline = await captureWorkspace(project.directory);
+      const git = await captureGitState(project.directory);
+      await saveWorkspaceBaseline(this.root, { taskId: task.taskId, operationId: intent.operationId }, baseline, git);
       if (this.closing) throw new Error('应用正在退出，未发送任务');
       await session.submit(this.runtime.transport);
       const saved = readWorkspace(this.root).tasks.find(value => value.taskId === task.taskId);
@@ -181,6 +231,31 @@ export async function submitFirstTurn(root: string, task: TaskSummary,
   }
 }
 
+export async function submitNextTurn(root: string, previous: TaskSummary,
+  intent: Parameters<typeof beginTaskSubmission>[2], transport: CodexTransport, onHistory: (turnIds: string[]) => void = () => {}) {
+  if (!previous.threadId || !previous.turnId || !['completed', 'failed', 'interrupted'].includes(previous.executionState)) throw new Error('原轮次尚未结束');
+  const history = await readThreadHistory(transport, previous.threadId, previous.directory);
+  const latest = history.turns.at(-1);
+  if (latest?.turnId !== previous.turnId || latest.status !== previous.executionState || history.turns.some(turn => turn.status === 'inProgress')) {
+    throw new Error('原会话历史与产品轮次不一致，未开始新轮，请核对状态');
+  }
+  onHistory(history.turns.map(turn => turn.turnId));
+  const thread = await resumeThread(transport, previous.threadId, previous.directory);
+  if (readWorkspace(root).tasks.some(value => !['idle', 'completed', 'failed', 'interrupted', 'unconfirmed'].includes(value.executionState))) throw new Error('存在活动或未决任务，不会排队或自动重发');
+  beginTaskContinuation(root, previous, intent);
+  markSubmissionDispatched(root, previous.taskId, intent.operationId);
+  try {
+    const turn = await startTurn(transport, thread.threadId, intent.text);
+    if (turn.turnId === previous.turnId) throw new Error('新轮应答复用了旧轮次，发送结果需要核对');
+    acknowledgeSubmission(root, previous.taskId, intent.operationId, thread.threadId, turn.turnId);
+    return { ...thread, ...turn };
+  } catch (cause) {
+    try { markSubmissionUncertain(root, previous.taskId, intent.operationId, new Date(Math.max(Date.now(), Date.parse(previous.observedAt))).toISOString()); }
+    catch (storageError) { throw new AggregateError([cause, storageError], '续轮发送结果未知，且状态落盘失败；禁止重发'); }
+    throw cause;
+  }
+}
+
 // 由当前连接的通知回调调用；普通 RPC 应答不经过此入口。
 export function observeTurnCompletion(root: string, taskId: string, operationId: string, message: unknown): boolean {
   const completion = parseCompletion(message);
@@ -199,6 +274,7 @@ function parseCompletion(message: unknown): { threadId: string; turnId: string; 
 
 // 一个实例只属于一次提交和一个连接；重连不能复用其回调或缓冲。
 export class FirstTurnSession {
+  private previousTurnIds = new Set<string>();
   private stopCompletion: ((completion: ReturnType<typeof parseCompletion>) => void) | null = null;
   private plans = new Map<string, ExecutionPlan>();
   private items = new Map<string, ExecutionItem>();
@@ -223,7 +299,9 @@ export class FirstTurnSession {
     this.started = true;
     this.connection = transport;
     try {
-      const result = await submitFirstTurn(this.root, this.task, this.intent, transport);
+      const result = this.task.threadId
+        ? await submitNextTurn(this.root, this.task, this.intent, transport, turnIds => { this.previousTurnIds = new Set(turnIds); })
+        : await submitFirstTurn(this.root, this.task, this.intent, transport);
       this.bound = true;
       this.binding = { threadId: result.threadId, turnId: result.turnId };
       if (this.invalidated) {
@@ -248,6 +326,12 @@ export class FirstTurnSession {
 
   notification(message: unknown): void {
     if (this.invalidated || !this.started) return;
+    // 恢复时可能先收到历史项通知；新轮应答前也不能把旧 delta 当作新执行上下文。
+    if (this.previousTurnIds.size && message && typeof message === 'object' && 'params' in message) {
+      const params = message.params as { threadId?: unknown; turnId?: unknown; turn?: { id?: unknown } } | null;
+      const turnId = params?.turnId ?? params?.turn?.id;
+      if (params?.threadId === this.task.threadId && typeof turnId === 'string' && this.previousTurnIds.has(turnId)) return;
+    }
     const planEvent = this.ended ? null : parsePlanEvent(message);
     if (planEvent && (!this.binding || (planEvent.threadId === this.binding.threadId && planEvent.turnId === this.binding.turnId))) {
       this.plans.set(JSON.stringify([planEvent.threadId, planEvent.turnId]), planEvent);

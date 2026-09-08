@@ -8,6 +8,11 @@ import './styles.css';
 import { ModelSettings } from './pages/ModelSettings';
 import { ModelPicker } from './components/ModelPicker';
 import { useExecution } from './workbench/useExecution';
+import { useHistory } from './workbench/useHistory';
+import { HistoryTimeline } from './workbench/HistoryTimeline';
+import { ResultsPanel } from './workbench/ResultsPanel';
+import { OutputPanel } from './workbench/OutputPanel';
+import type { CommandItem } from '../shared/contracts/execution';
 import { useDraft } from './workbench/useDraft';
 import { ExecutionTimeline } from './workbench/ExecutionTimeline';
 import { taskStateLabel } from './shell/TaskStatus';
@@ -16,8 +21,7 @@ import { FLASH_MODEL_ID, type ModelSettings as ModelConfiguration } from '../sha
 function App() {
   const workspace = useWorkspace();
   const execution = useExecution();
-  const [executionActionError, setExecutionActionError] = useState<{ taskId: string | null; message: string } | null>(null);
-  const visibleExecutionError = executionActionError?.taskId === workspace.selectedTaskId ? executionActionError.message : '';
+  const [executionActionError, setExecutionActionError] = useState<{ taskId: string | null; turnId?: string; message: string } | null>(null);
   const [stoppingTaskId, setStoppingTaskId] = useState<string | null>(null);
   const [pendingApprovals, setPendingApprovals] = useState<Set<string>>(new Set());
   const approvalLocks = useRef(new Set<string>());
@@ -36,7 +40,7 @@ function App() {
     if (!task?.threadId || !task.turnId || stopping) return;
     setStoppingTaskId(task.taskId); setExecutionActionError(null);
     try { await window.agentx.stopExecution({ taskId: task.taskId, operationId: crypto.randomUUID(), threadId: task.threadId, turnId: task.turnId }); }
-    catch (cause) { setExecutionActionError({ taskId: task.taskId, message: cause instanceof Error ? cause.message : '停止请求失败，请核对状态' }); }
+    catch (cause) { setExecutionActionError({ taskId: task.taskId, turnId: task.turnId, message: cause instanceof Error ? cause.message : '停止请求失败，请核对状态' }); }
     finally {
       // 等到最新读取落地；仅收到停止 IPC 应答时不能短暂重新开放停止按钮。
       if (await execution.load()) setStoppingTaskId(previous => previous === task.taskId ? null : previous);
@@ -47,7 +51,7 @@ function App() {
     if (!task?.threadId || !task.turnId || currentState !== 'waitingApproval' || approvalLocks.current.has(approvalToken) || execution.error) return;
     approvalLocks.current.add(approvalToken); setPendingApprovals(new Set(approvalLocks.current)); setExecutionActionError(null);
     try { await window.agentx.answerExecutionApproval({ taskId: task.taskId, operationId: crypto.randomUUID(), threadId: task.threadId, turnId: task.turnId, approvalToken, decision }); }
-    catch (cause) { setExecutionActionError({ taskId: task.taskId, message: cause instanceof Error ? cause.message : '审批回答失败，请核对状态' }); }
+    catch (cause) { setExecutionActionError({ taskId: task.taskId, turnId: task.turnId, message: cause instanceof Error ? cause.message : '审批回答失败，请核对状态' }); }
     finally {
       await execution.load();
       approvalLocks.current.delete(approvalToken); setPendingApprovals(new Set(approvalLocks.current));
@@ -55,6 +59,23 @@ function App() {
   }
   const selectedProject = workspace.snapshot?.projects.find(project => project.projectId === workspace.selectedProjectId);
   const selectedTask = workspace.snapshot?.tasks.find(task => task.taskId === workspace.selectedTaskId);
+  const visibleExecutionError = executionActionError?.taskId === workspace.selectedTaskId && (!executionActionError.turnId || executionActionError.turnId === selectedTask?.turnId) ? executionActionError.message : '';
+  const [resultsTask, setResultsTask] = useState<string | null>(null);
+  const resultsTrigger = useRef<HTMLButtonElement>(null);
+  const canInspect = !!selectedTask?.turnId && ['completed', 'failed', 'interrupted'].includes(selectedTask.executionState);
+  const resultsOpen = canInspect && resultsTask === selectedTask?.taskId;
+  const history = useHistory(selectedTask?.taskId ?? null, canInspect ? selectedTask!.turnId : null);
+  const hasCurrentHistory = !!currentExecution?.task?.turnId && !!history.value?.turns.some(turn => turn.turnId === currentExecution.task!.turnId);
+  const [outputSelection, setOutputSelection] = useState<{ taskId: string; threadId: string; turnId: string; itemId: string } | null>(null);
+  const outputTrigger = useRef<HTMLButtonElement | null>(null);
+  const outputItem = outputSelection?.taskId === workspace.selectedTaskId
+    ? [...(history.value?.turns.flatMap(turn => turn.items) ?? []), ...(hasCurrentHistory ? [] : currentExecution?.items ?? [])].find((item): item is CommandItem => item.kind === 'command' &&
+      item.threadId === outputSelection.threadId && item.turnId === outputSelection.turnId && item.itemId === outputSelection.itemId) : undefined;
+  function openOutput(item: CommandItem, trigger: HTMLButtonElement) {
+    if (!workspace.selectedTaskId) return;
+    outputTrigger.current = trigger; setResultsTask(null);
+    setOutputSelection({ taskId: workspace.selectedTaskId, threadId: item.threadId, turnId: item.turnId, itemId: item.itemId });
+  }
   const draftState = useDraft({ projectId: workspace.selectedProjectId, taskId: workspace.selectedTaskId });
   const draft = draftState.text, setDraft = draftState.setText;
   const [modelConfiguration, setModelConfiguration] = useState<ModelConfiguration | null>(null);
@@ -69,7 +90,7 @@ function App() {
     : draftState.loading || draftState.saving || draftState.error ? '请先确认草稿已读取并保存。'
     : !workspace.snapshot || workspace.error || !execution.snapshot || execution.error ? '请先完成项目和执行状态读取。'
     : busyTask ? '有活动或待核对任务，不能开始另一个任务。'
-    : workspace.selectedTaskId ? '本会话续轮将在结果检查切片接入；可新建会话。'
+    : workspace.selectedTaskId && (!selectedTask?.threadId || !canInspect) ? '本会话没有已确认结束的轮次，请先核对状态。'
     : !selectedProject ? '请先选择本地项目。'
     : selectedProject.directoryState !== 'available' ? '工作目录不可用，不能开始执行。'
     : !modelConfiguration ? '正在读取可用模型配置。'
@@ -82,27 +103,30 @@ function App() {
   const [error, setError] = useState('');
   const draftRevision = useRef(0);
   const [steeringTaskId, setSteeringTaskId] = useState<string | null>(null);
-  const [steerNotice, setSteerNotice] = useState<{ taskId: string; message: string } | null>(null);
+  const [steerNotice, setSteerNotice] = useState<{ taskId: string; turnId: string; message: string } | null>(null);
   const canSteer = !!currentState && ['running', 'waitingApproval', 'waitingInput'].includes(currentState);
   useEffect(() => { draftRevision.current++; }, [workspace.selectedProjectId, workspace.selectedTaskId]);
 
-  async function sendFirstTurn() {
+  async function sendTurn() {
     if (blockedReason || submitLock.current || !selectedProject || !modelConfiguration) return;
-    const request = { taskId: crypto.randomUUID(), operationId: crypto.randomUUID(), projectId: selectedProject.projectId,
+    const previousTaskId = workspace.selectedTaskId;
+    const request = { taskId: selectedTask?.taskId ?? crypto.randomUUID(), operationId: crypto.randomUUID(), projectId: selectedProject.projectId,
       modelId: FLASH_MODEL_ID, configRevision: modelConfiguration.configRevision, text: draft };
-    const revision = draftRevision.current, generation = selection.current.generation;
-    const stillHere = () => selection.current.projectId === request.projectId && selection.current.taskId === null && selection.current.generation === generation;
+    const revision = ++draftRevision.current, generation = selection.current.generation;
+    const stillHere = () => selection.current.projectId === request.projectId && selection.current.taskId === previousTaskId && selection.current.generation === generation;
     submitLock.current = true; setSubmitting(true); setExecutionActionError(null);
     try {
-      const task = await window.agentx.startExecution(request);
+      const task = selectedTask
+        ? await window.agentx.continueExecution({ ...request, threadId: selectedTask.threadId!, expectedTurnId: selectedTask.turnId! })
+        : await window.agentx.startExecution(request);
       if (stillHere()) {
-        if (draftRevision.current !== revision) draftState.seedNewTask({ projectId: request.projectId, taskId: task.taskId }, draftState.latestText());
+        if (!selectedTask && draftRevision.current !== revision) draftState.seedNewTask({ projectId: request.projectId, taskId: task.taskId }, draftState.latestText());
         workspace.setSelectedTaskId(task.taskId);
         if (draftRevision.current === revision) setDraft('');
       }
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : '发送失败，请先核对执行状态';
-      if (stillHere()) setExecutionActionError({ taskId: null, message });
+      if (stillHere()) setExecutionActionError({ taskId: previousTaskId, message });
       // 失败也可能已经持久化并发往引擎；定位已有记录，而不是把失败当作可自动重试。
       try {
         const snapshot = await window.agentx.getWorkspace();
@@ -110,7 +134,7 @@ function App() {
           workspace.setSelectedTaskId(request.taskId);
           setExecutionActionError({ taskId: request.taskId, message });
         }
-      } catch { if (stillHere()) setExecutionActionError({ taskId: null, message: `${message}；未能核对任务记录，请重读状态，不要重复提交。` }); }
+      } catch { if (stillHere()) setExecutionActionError({ taskId: previousTaskId, message: `${message}；未能核对任务记录，请重读状态，不要重复提交。` }); }
     } finally {
       await Promise.all([workspace.load(), execution.load()]);
       submitLock.current = false; setSubmitting(false);
@@ -124,11 +148,11 @@ function App() {
     setSteeringTaskId(task.taskId); setExecutionActionError(null); setSteerNotice(null);
     try {
       await window.agentx.steerExecution({ taskId: task.taskId, operationId: crypto.randomUUID(), threadId: task.threadId, turnId: task.turnId, text });
-      setSteerNotice({ taskId: task.taskId, message: '补充要求已接收' });
+      setSteerNotice({ taskId: task.taskId, turnId: task.turnId, message: '补充要求已接收' });
       // 仅清除本次确已接收且没有再编辑的输入，切换会话也会推进草稿修订。
       if (draftRevision.current === revision) setDraft('');
     } catch (cause) {
-      setExecutionActionError({ taskId: task.taskId, message: cause instanceof Error ? cause.message : '补充失败，请保留输入' });
+      setExecutionActionError({ taskId: task.taskId, turnId: task.turnId, message: cause instanceof Error ? cause.message : '补充失败，请保留输入' });
     } finally { setSteeringTaskId(null); void execution.load(); }
   }
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 1040);
@@ -144,8 +168,11 @@ function App() {
   const sidebar = useRef<HTMLElement>(null);
 
   function openWorkbench() {
+    const focused = document.activeElement;
     setView('workbench');
-    requestAnimationFrame(() => input.current?.focus());
+    requestAnimationFrame(() => {
+      if (document.activeElement === focused || document.activeElement === document.body) input.current?.focus();
+    });
   }
 
   function newSession() { selection.current.generation++; setExecutionActionError(null); workspace.setSelectedTaskId(null); openWorkbench(); }
@@ -226,15 +253,23 @@ function App() {
     </aside>}
     <div className="workspace">
       <header className="window-bar drag-region">{!sidebarOpen && <><button ref={sidebarToggle} className="icon-button" aria-label="展开侧栏" onClick={toggleSidebar}><PanelIcon /></button><button className="icon-button" aria-label="新会话" onClick={newSession}>＋</button><button className="icon-button" aria-label="设置" onClick={() => setView('settings')}><SettingsIcon /></button></>}</header>
-      <main className={`welcome${currentExecution?.task ? ' execution-workbench' : ''}`} hidden={view !== 'workbench'}>
+      <div className={`workbench-layout${resultsOpen || outputItem ? ' has-results' : ''}`} hidden={view !== 'workbench'}>
+      <main className={`welcome${selectedTask || currentExecution?.task ? ' execution-workbench' : ''}`}>
         <div className="welcome-heading">
-          <h1>{selectedTask?.title ?? '今天想完成什么工作？'}</h1>
-          <p>{currentState ? currentState === 'stopping' ? '正在停止，等待引擎确认…' : taskStateLabel[currentState] : selectedTask ? '当前仅展示产品会话记录；执行内容与历史读取尚未接入。' : '用自然语言描述目标，在这里开始工作。'}</p>
+          <h1 title={selectedTask?.title}>{selectedTask?.title ?? '今天想完成什么工作？'}</h1>
+          <p>{currentState ? currentState === 'stopping' ? '正在停止，等待引擎确认…' : taskStateLabel[currentState] : selectedTask ? taskStateLabel[selectedTask.executionState] : '用自然语言描述目标，在这里开始工作。'}</p>
+          {canInspect && <button ref={resultsTrigger} className="secondary-button inspect-results" aria-label="查看文件改动" aria-expanded={resultsOpen} onClick={() => { setOutputSelection(null); setResultsTask(selectedTask!.taskId); }}>查看文件改动</button>}
         </div>
-        {currentExecution && <ExecutionTimeline items={currentExecution.items} approvals={currentExecution.approvals} pending={pendingApprovals}
-          inputText={currentExecution.inputText}
+        {(selectedTask || currentExecution) && <div className="execution-transcript">
+        {history.loading && <p role="status" className="muted">正在读取会话历史…</p>}
+        {history.error && <p role="alert" className="error-message">历史读取失败：{history.error} <button className="secondary-button" onClick={() => void history.load()}>重新读取历史</button></p>}
+        {history.value && (history.loading || history.error || history.value.turns.at(-1)?.turnId !== selectedTask?.turnId) && <p className="muted">以下保留先前成功读取的历史，不代表当前轮已结束。</p>}
+        {history.value && <HistoryTimeline history={history.value} onOpenOutput={openOutput} />}
+        {currentExecution && !hasCurrentHistory && <ExecutionTimeline items={currentExecution.items} approvals={currentExecution.approvals} pending={pendingApprovals}
+          inputText={currentExecution.inputText} onOpenOutput={openOutput}
           plan={currentExecution.plan} active={!!currentState && ['running', 'waitingApproval', 'waitingInput', 'stopping'].includes(currentState) && !execution.error}
           canAnswer={currentState === 'waitingApproval' && !execution.error && !stopping} onAnswer={(token, decision) => void answerApproval(token, decision)} />}
+        </div>}
         {execution.error && <p role="alert" className="error-message">{execution.error} <button className="secondary-button" onClick={() => void execution.load()}>重读执行状态</button></p>}
         {(visibleExecutionError || currentExecution?.error) && <p role="alert" className="error-message">{visibleExecutionError || currentExecution?.error}</p>}
         <div className="location"><FolderIcon /><select aria-label="工作目录" value={workspace.selectedProjectId ?? ''} disabled={workspace.choosing || !workspace.snapshot}
@@ -265,15 +300,15 @@ function App() {
               if (event.shiftKey || event.altKey || event.metaKey) return;
               event.preventDefault();
               if (canSteer) void supplement();
-              else if (!blockedReason && !showStop) void sendFirstTurn();
+              else if (!blockedReason && !showStop) void sendTurn();
             }}
             placeholder="描述你想完成的工作…" title="Enter 发送，Ctrl+Enter 换行" />
           <div className="composer-toolbar">
             <span className="muted">请求批准</span>
-            {currentExecution?.task ? <span className="model-state">{FLASH_MODEL_ID} · 本轮</span>
+            {currentExecution?.task && !canInspect ? <span className="model-state">{FLASH_MODEL_ID} · 本轮</span>
               : <ModelPicker visible={view === 'workbench'} onSettingsChange={setModelConfiguration} openSettings={() => { setSettingsGroup('models'); setView('settings'); }} />}
             <button className="send-button" aria-label={showStop ? '停止' : '发送'} aria-describedby="send-unavailable" title={showStop ? '停止当前轮次' : blockedReason || '发送任务'}
-              disabled={showStop ? stopping || currentState === 'stopping' || !!execution.error : !!blockedReason} onClick={() => showStop ? void stopExecution() : void sendFirstTurn()}>
+              disabled={showStop ? stopping || currentState === 'stopping' || !!execution.error : !!blockedReason} onClick={() => showStop ? void stopExecution() : void sendTurn()}>
               {showStop ? <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1" /></svg>
                 : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 20V4m-7 7 7-7 7 7" /></svg>}
             </button>
@@ -281,13 +316,19 @@ function App() {
         </section>
         {draftState.error ? <p role="alert" className="error-message">{draftState.error}；当前输入不会自动丢弃。<button className="secondary-button" onClick={draftState.retry}>重试草稿保存或读取</button></p>
           : <p role="status" className="muted">{draftState.loading ? '正在读取草稿…' : draftState.saving ? '正在保存草稿…' : '草稿已保存'}</p>}
-        {steerNotice?.taskId === workspace.selectedTaskId && <p role="status" className="muted">{steerNotice.message}</p>}
+        {steerNotice?.taskId === workspace.selectedTaskId && steerNotice.turnId === currentExecution?.task?.turnId && <p role="status" className="muted">{steerNotice.message}</p>}
         <p id="send-unavailable" role="note" className={selectedProject?.directoryState === 'unavailable' ? 'error-message' : 'muted'}>{selectedProject?.directoryState === 'unavailable'
-          ? `工作目录不可用：${selectedProject.directoryError}。不能在此目录开始新执行，原会话关联仍保留。` : currentExecution ? '本轮沿用已提交的模型与权限。停止请求需等待引擎确认，已发生的修改不会自动撤销。' : blockedReason || '将使用选定项目与 Flash 开始工作。'}</p>
+          ? `工作目录不可用：${selectedProject.directoryError}。不能在此目录开始新执行，原会话关联仍保留。` : currentExecution && !canInspect ? '本轮沿用已提交的模型与权限。停止请求需等待引擎确认，已发生的修改不会自动撤销。' : blockedReason || (selectedTask ? '将在原会话中开始新一轮，保留先前历史；这不是旧进程的断点续跑。' : '将使用选定项目与 Flash 开始工作。')}</p>
         {busyTask && busyTask.taskId !== workspace.selectedTaskId && <button className="secondary-button" onClick={() => {
           workspace.setSelectedProjectId(busyTask.projectId); workspace.setSelectedTaskId(busyTask.taskId);
         }}>查看活动或待核对任务</button>}
       </main>
+      {resultsOpen && selectedTask?.turnId && <ResultsPanel key={`${selectedTask.taskId}:${selectedTask.turnId}`} taskId={selectedTask.taskId} turnId={selectedTask.turnId}
+        onClose={() => { setResultsTask(null); resultsTrigger.current?.focus(); }} />}
+      {outputItem && <OutputPanel key={`${outputSelection!.taskId}:${outputItem.threadId}:${outputItem.turnId}:${outputItem.itemId}`} item={outputItem}
+        active={!hasCurrentHistory && outputItem.turnId === currentExecution?.task?.turnId && !execution.error && showStop}
+        onClose={() => { setOutputSelection(null); if (outputTrigger.current?.isConnected) outputTrigger.current.focus(); else input.current?.focus(); }} />}
+      </div>
       <main className="settings" hidden={view !== 'settings'}>
         <header className="settings-header"><h1>设置</h1><button className="secondary-button" onClick={openWorkbench}>返回工作台</button></header>
         <div className="settings-layout">
