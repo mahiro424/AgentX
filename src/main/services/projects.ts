@@ -1,7 +1,7 @@
 import { dialog, type BrowserWindow } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { ProjectChoice, ProjectRename, ProjectRecord, ProjectSummary, WorkspaceSnapshot } from '../../shared/contracts/projects';
+import type { ProjectChoice, ProjectRename, ProjectRecord, ProjectSummary, TaskSummary, WorkspaceSnapshot } from '../../shared/contracts/projects';
 import { associateProject, readWorkspace, renameProject } from '../storage/projects';
 
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
@@ -21,13 +21,17 @@ async function directoryStatus(directory: string): Promise<Pick<ProjectSummary, 
 
 export class ProjectService {
   private choosing = false;
-  constructor(private readonly root: string) {}
+  constructor(private readonly root: string, private readonly readCurrentTask: () => TaskSummary | null = () => null) {}
 
   async read(): Promise<WorkspaceSnapshot> {
     const records = readWorkspace(this.root);
-    return { projects: await Promise.all(records.projects.map(async project => ({ ...project, ...await directoryStatus(project.directory) }))),
-      // 落盘的非终态只是旧观测；M1-04 用本实例已核对的引擎事件提供活动投影。
-      tasks: records.tasks.map(task => ({ ...task, executionState: ['idle', 'completed', 'failed', 'interrupted', 'unconfirmed'].includes(task.executionState) ? task.executionState : 'reconciling' })),
+    const projects = await Promise.all(records.projects.map(async project => ({ ...project, ...await directoryStatus(project.directory) })));
+    // 目录探测期间引擎可能已经结束；只在返回前读取本实例的最新执行观测。
+    const current = this.readCurrentTask();
+    return { projects,
+      tasks: records.tasks.map(task => current?.taskId === task.taskId && current.projectId === task.projectId && current.directory === task.directory
+        ? { ...current }
+        : { ...task, executionState: ['idle', 'completed', 'failed', 'interrupted', 'unconfirmed'].includes(task.executionState) ? task.executionState : 'reconciling' }),
     };
   }
 

@@ -2,9 +2,19 @@ import type { ForgeConfig } from '@electron-forge/shared-types';
 import { WebpackPlugin } from '@electron-forge/plugin-webpack';
 import { mainConfig } from './webpack.main.config';
 import { rendererConfig } from './webpack.renderer.config';
+import path from 'node:path';
+
+const { prepareCodex } = require('./scripts/prepare-codex.cjs') as { prepareCodex(): Promise<string> };
 
 const config: ForgeConfig = {
-  packagerConfig: { asar: true, executableName: 'AgentX' },
+  packagerConfig: { asar: true, executableName: 'AgentX', extraResource: [path.resolve(__dirname, '.cache/engine')] },
+  hooks: {
+    prePackage: async (_config, platform, arch) => {
+      if (platform !== 'win32' || arch !== 'x64') throw new Error('M1 只打包 Windows x64');
+      await prepareCodex();
+    },
+    preStart: async () => { await prepareCodex(); },
+  },
   rebuildConfig: {},
   makers: [],
   plugins: [new WebpackPlugin({

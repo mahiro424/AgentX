@@ -1,4 +1,7 @@
 import type { ProjectChoice, ProjectOperation, ProjectRename, ProjectRecord, WorkspaceSnapshot } from './projects';
+import type { ExecutionStart, ExecutionControl, ExecutionSnapshot, ExecutionSteer, ExecutionApproval } from './execution';
+import type { TaskSummary } from './projects';
+import type { DraftScope, DraftRecord, DraftSave } from './drafts';
 import type { ModelTestRequest, ActiveModelChange, ConnectionChange, KeySubmission, ModelOperation, ModelSelectionChange, ModelSettings } from './models';
 
 export const APP_INFO_CHANNEL = 'agentx:app-info';
@@ -18,6 +21,14 @@ export interface AppInfo {
 }
 
 export interface AgentXBridge {
+  getDraft(value: DraftScope): Promise<DraftRecord>;
+  saveDraft(value: DraftSave): Promise<DraftRecord>;
+  getExecution(): Promise<ExecutionSnapshot>;
+  startExecution(value: ExecutionStart): Promise<TaskSummary>;
+  stopExecution(value: ExecutionControl): Promise<void>;
+  steerExecution(value: ExecutionSteer): Promise<void>;
+  answerExecutionApproval(value: ExecutionApproval): Promise<void>;
+  onExecutionChanged(listener: () => void): () => void;
   renameProject(value: ProjectRename): Promise<ProjectRecord>;
   chooseProject(value: ProjectOperation): Promise<ProjectChoice>;
   onWorkspaceChanged(listener: () => void): () => void;

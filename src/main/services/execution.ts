@@ -1,0 +1,420 @@
+import type { TaskSummary } from '../../shared/contracts/projects';
+import { randomUUID } from 'node:crypto';
+import fs from 'node:fs/promises';
+import { readWorkspace } from '../storage/projects';
+import { beginTaskSubmission, markSubmissionDispatched, markSubmissionUncertain, bindSubmissionThread, acknowledgeSubmission, settleTaskTurn, beginTaskStop, updateApprovalWait, readSubmissionIntent } from '../storage/tasks';
+import { parseApprovalRequest, answerApproval, type ApprovalRequest } from '../runtime/codex/approvals';
+import { startThread, startTurn, interruptTurn, steerTurn, terminateBackgroundTerminals } from '../runtime/codex/execution';
+import type { CodexTransport } from '../runtime/codex/transport';
+import type { ModelService } from './models';
+import { prepareCodexConfiguration } from '../runtime/codex/configuration';
+import { openExecutionCodex } from '../runtime/codex/process';
+import { FLASH_MODEL_ID } from '../../shared/contracts/models';
+import type { ExecutionItem, ExecutionSnapshot, ExecutionControl, ExecutionPlan } from '../../shared/contracts/execution';
+import { parseMessageEvent, parseCommandEvent, parseFileChangeEvent, parsePlanEvent } from '../runtime/codex/events';
+
+// Main 单一拥有者；准备阶段也占用执行槽，不把异步解密/启动间隙当成可发送。
+export class ExecutionService {
+  private preparing = false;
+  private error: string | null = null;
+  private closing = false;
+  private preparationDone = Promise.resolve();
+  private finishPreparation: (() => void) | null = null;
+  private controlOperations = new Set<string>();
+  private runtime: Awaited<ReturnType<typeof openExecutionCodex>> | null = null;
+  private current: { taskId: string; operationId: string; session: FirstTurnSession } | null = null;
+
+  constructor(private readonly root: string, private readonly resourcesDirectory: string,
+    private readonly models: Pick<ModelService, 'captureExecution'>, private readonly onChange: () => void = () => {}) {}
+
+  read(): ExecutionSnapshot {
+    const plan = this.current?.session.readPlan();
+    const intent = this.current ? readSubmissionIntent(this.root, this.current.operationId) : null;
+    if (intent && intent.taskId !== this.current?.taskId) throw new Error('发送意图归属不一致，请核对任务记录');
+    return { preparing: this.preparing,
+      task: this.current ? readWorkspace(this.root).tasks.find(task => task.taskId === this.current!.taskId) ?? null : null,
+      operationId: this.current?.operationId ?? null, items: this.current?.session.readItems() ?? [],
+      approvals: this.current?.session.readApprovals() ?? [], error: this.error, ...(plan ? { plan } : {}), ...(intent ? { inputText: intent.text } : {}) };
+  }
+
+  private changed(): void {
+    // 窗口通知失败不应中断引擎；错误仍在 Main 日志中可定位。
+    try { this.onChange(); } catch { console.error('执行状态通知未送达，请重新读取当前快照'); }
+  }
+
+  private control(input: unknown): FirstTurnSession {
+    const value = input as Partial<ExecutionControl> | null;
+    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 4 ||
+        typeof value.operationId !== 'string' || !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value.operationId) ||
+        typeof value.taskId !== 'string' || typeof value.threadId !== 'string' || typeof value.turnId !== 'string') throw new Error('执行控制请求无效');
+    const snapshot = this.read();
+    if (this.preparing || !this.current || !snapshot.task || snapshot.task.taskId !== value.taskId ||
+        snapshot.task.threadId !== value.threadId || snapshot.task.turnId !== value.turnId ||
+        !['running', 'waitingApproval', 'waitingInput'].includes(snapshot.task.executionState)) throw new Error('当前没有可控制的有效轮次');
+    if (this.controlOperations.has(value.operationId) || readSubmissionIntent(this.root, value.operationId)) throw new Error('控制操作已使用，不会重复发送');
+    this.controlOperations.add(value.operationId);
+    return this.current.session;
+  }
+
+  async stop(input: unknown): Promise<void> {
+    const session = this.control(input);
+    try { const pending = session.stop(); this.changed(); await pending; }
+    finally { this.changed(); }
+  }
+
+  async steer(input: unknown): Promise<void> {
+    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 5 ||
+        !('text' in input) || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 200000 || input.text.includes('\0')) throw new Error('补充内容无效，请保留输入');
+    const { text, ...control } = input;
+    const session = this.control(control);
+    try { const pending = session.steer(text); this.changed(); await pending; }
+    finally { this.changed(); }
+  }
+
+  async answer(input: unknown): Promise<void> {
+    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 6 ||
+        !('approvalToken' in input) || typeof input.approvalToken !== 'string' || !input.approvalToken ||
+        !('decision' in input) || (input.decision !== 'accept' && input.decision !== 'decline')) throw new Error('审批请求无效；仅支持本次允许或拒绝');
+    const { approvalToken, decision, ...control } = input;
+    const session = this.control(control);
+    try { const pending = session.answer(approvalToken, decision); this.changed(); await pending; }
+    finally { this.changed(); }
+  }
+
+  async close(): Promise<void> {
+    this.closing = true;
+    await this.preparationDone;
+    if (this.runtime) { await this.runtime.close(); this.runtime = null; }
+  }
+
+  async start(input: unknown) {
+    if (this.closing) throw new Error('应用正在退出，不能发送任务');
+    const uuid = (value: unknown): value is string => typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
+    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 6 ||
+        !('taskId' in input) || !uuid(input.taskId) || !('operationId' in input) || !uuid(input.operationId) ||
+        !('projectId' in input) || !uuid(input.projectId) || !('modelId' in input) || input.modelId !== FLASH_MODEL_ID ||
+        !('configRevision' in input) || !Number.isSafeInteger(input.configRevision) || Number(input.configRevision) < 0 ||
+        !('text' in input) || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 200000 || input.text.includes('\0')) {
+      throw new Error('发送请求无效；本阶段仅支持 Flash、已关联项目和纯文本');
+    }
+    const request = { taskId: input.taskId, operationId: input.operationId, projectId: input.projectId,
+      text: input.text, configRevision: Number(input.configRevision) };
+    const workspace = readWorkspace(this.root);
+    if (this.preparing || workspace.tasks.some(task => !['idle', 'completed', 'failed', 'interrupted', 'unconfirmed'].includes(task.executionState))) {
+      throw new Error('存在准备中、活动或未决任务；不会排队或自动重发');
+    }
+    if (workspace.tasks.some(task => task.taskId === request.taskId) || readSubmissionIntent(this.root, request.operationId)) throw new Error('任务或发送操作已使用，请读取原记录，不能重复发送');
+    const project = workspace.projects.find(value => value.projectId === request.projectId);
+    if (!project) throw new Error('项目未关联，未开始执行');
+    this.preparing = true;
+    this.preparationDone = new Promise(resolve => { this.finishPreparation = resolve; });
+    this.error = null;
+    this.changed();
+    try {
+      const snapshot = await this.models.captureExecution(request.configRevision);
+      if (this.closing) throw new Error('应用正在退出，未开始执行');
+      // 保存的路径必须仍指向用户原先关联的普通目录，不接受 Renderer 指定任意 cwd。
+      if (await fs.realpath(project.directory) !== project.directory || !(await fs.stat(project.directory)).isDirectory()) throw new Error('项目目录已变化，未开始执行');
+      const directory = await fs.opendir(project.directory); await directory.close();
+      if (this.runtime) {
+        await this.runtime.close();
+        this.runtime = null;
+      }
+      const configuration = await prepareCodexConfiguration(this.root, snapshot);
+      const now = new Date().toISOString();
+      const task: TaskSummary = { taskId: request.taskId, projectId: project.projectId, directory: project.directory,
+        title: request.text.replace(/[\u0000-\u001f\u007f]/gu, ' ').trim().slice(0, 120),
+        lastActivityAt: now, observedAt: now, executionState: 'submitting', threadId: null, turnId: null };
+      const intent = { operationId: request.operationId, text: request.text, modelId: snapshot.modelId,
+        configRevision: snapshot.configRevision, credentialRef: snapshot.credentialRef };
+      const session = new FirstTurnSession(this.root, task, intent);
+      this.current = { taskId: task.taskId, operationId: intent.operationId, session };
+      this.runtime = await openExecutionCodex({ resourcesDirectory: this.resourcesDirectory,
+        workingDirectory: project.directory, ...configuration }, {
+        notification: message => { session.notification(message); this.changed(); },
+        request: message => { session.request(message); this.changed(); },
+        disconnected: error => {
+          session.disconnected();
+          if (this.current?.session === session && this.read().task?.executionState === 'reconciling') this.error = error.message;
+          this.changed();
+        },
+      });
+      if (this.closing) throw new Error('应用正在退出，未发送任务');
+      await session.submit(this.runtime.transport);
+      const saved = readWorkspace(this.root).tasks.find(value => value.taskId === task.taskId);
+      if (!saved) throw new Error('提交后任务记录缺失，需核对状态');
+      return saved;
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : '执行失败，请核对状态';
+      if (this.runtime) {
+        try { await this.runtime.close(); this.runtime = null; }
+        catch (closeError) { throw new AggregateError([error, closeError], '执行准备或发送失败，且引擎回收未确认；禁止重发'); }
+      }
+      throw error;
+    } finally { this.preparing = false; this.finishPreparation?.(); this.finishPreparation = null; this.changed(); }
+  }
+}
+
+// Main 内部协调接缝。调用者负责准备冻结配置及专属已握手连接，并接收该连接的事件。
+export async function submitFirstTurn(root: string, task: TaskSummary,
+  intent: Parameters<typeof beginTaskSubmission>[2], transport: CodexTransport) {
+  // 检查与落盘之间没有 await；Main 单一写入者不允许第二次提交穿过此占用检查。
+  if (readWorkspace(root).tasks.some(value => !['idle', 'completed', 'failed', 'interrupted', 'unconfirmed'].includes(value.executionState))) {
+    throw new Error('存在活动或未决任务，请先完成或核对；不会自动排队');
+  }
+  beginTaskSubmission(root, task, intent);
+  markSubmissionDispatched(root, task.taskId, intent.operationId);
+  try {
+    const thread = await startThread(transport, task.directory);
+    bindSubmissionThread(root, task.taskId, intent.operationId, thread.threadId);
+    const turn = await startTurn(transport, thread.threadId, intent.text);
+    acknowledgeSubmission(root, task.taskId, intent.operationId, thread.threadId, turn.turnId);
+    return { ...thread, ...turn };
+  } catch (cause) {
+    try {
+      const observedAt = new Date(Math.max(Date.now(), Date.parse(task.observedAt))).toISOString();
+      markSubmissionUncertain(root, task.taskId, intent.operationId, observedAt);
+    } catch (storageError) {
+      throw new AggregateError([cause, storageError], '发送结果未知，且产品状态落盘失败；保留原记录，禁止重发');
+    }
+    throw cause;
+  }
+}
+
+// 由当前连接的通知回调调用；普通 RPC 应答不经过此入口。
+export function observeTurnCompletion(root: string, taskId: string, operationId: string, message: unknown): boolean {
+  const completion = parseCompletion(message);
+  return completion ? settleTaskTurn(root, taskId, operationId, completion.threadId, completion.turnId, completion.state) : false;
+}
+
+function parseCompletion(message: unknown): { threadId: string; turnId: string; state: 'completed' | 'failed' | 'interrupted' } | null {
+  if (!message || typeof message !== 'object' || Array.isArray(message) || !('method' in message) || message.method !== 'turn/completed') return null;
+  if (!('params' in message) || !message.params || typeof message.params !== 'object' || Array.isArray(message.params)) throw new Error('轮次终态通知结构无效，需核对状态');
+  const params = message.params as Record<string, unknown>;
+  if (typeof params.threadId !== 'string' || !params.threadId || !params.turn || typeof params.turn !== 'object' || Array.isArray(params.turn)) throw new Error('轮次终态关联无效，需核对状态');
+  const turn = params.turn as Record<string, unknown>;
+  if (typeof turn.id !== 'string' || !turn.id || (turn.status !== 'completed' && turn.status !== 'failed' && turn.status !== 'interrupted')) throw new Error('轮次终态值无效，需核对状态');
+  return { threadId: params.threadId, turnId: turn.id, state: turn.status };
+}
+
+// 一个实例只属于一次提交和一个连接；重连不能复用其回调或缓冲。
+export class FirstTurnSession {
+  private stopCompletion: ((completion: ReturnType<typeof parseCompletion>) => void) | null = null;
+  private plans = new Map<string, ExecutionPlan>();
+  private items = new Map<string, ExecutionItem>();
+  private ended = false;
+  private approvals = new Map<string, { request: ApprovalRequest; status: 'pending' | 'responding' | 'resolved' | 'stale' }>();
+  private started = false;
+  private bound = false;
+  private invalidated = false;
+  private steering = false;
+  private connection: CodexTransport | null = null;
+  private binding: { threadId: string; turnId: string } | null = null;
+  private pending: NonNullable<ReturnType<typeof parseCompletion>>[] = [];
+  private readonly task: TaskSummary;
+  private readonly intent: Parameters<typeof beginTaskSubmission>[2];
+
+  constructor(private readonly root: string, task: TaskSummary, intent: Parameters<typeof beginTaskSubmission>[2]) {
+    this.task = { ...task }; this.intent = { ...intent };
+  }
+
+  async submit(transport: CodexTransport) {
+    if (this.started || this.invalidated) throw new Error('本次提交或连接已使用/失效，不可重复发送');
+    this.started = true;
+    this.connection = transport;
+    try {
+      const result = await submitFirstTurn(this.root, this.task, this.intent, transport);
+      this.bound = true;
+      this.binding = { threadId: result.threadId, turnId: result.turnId };
+      if (this.invalidated) {
+        this.markUnknown();
+        throw new Error('引擎连接已失效，任务需核对；不会自动重发');
+      }
+      for (const completion of this.pending) this.apply(completion);
+      this.pending = [];
+      this.syncApprovalWait();
+      return result;
+    } catch (error) {
+      const needsReconciliation = this.bound && !this.invalidated;
+      this.invalidated = true;
+      this.pending = [];
+      if (needsReconciliation) {
+        try { this.markUnknown(); }
+        catch (storageError) { throw new AggregateError([error, storageError], '轮次事件保存失败，且核对状态未能落盘；禁止重发'); }
+      }
+      throw error;
+    }
+  }
+
+  notification(message: unknown): void {
+    if (this.invalidated || !this.started) return;
+    const planEvent = this.ended ? null : parsePlanEvent(message);
+    if (planEvent && (!this.binding || (planEvent.threadId === this.binding.threadId && planEvent.turnId === this.binding.turnId))) {
+      this.plans.set(JSON.stringify([planEvent.threadId, planEvent.turnId]), planEvent);
+    }
+    const textEvent = this.ended ? null : parseMessageEvent(message);
+    if (textEvent && (!this.binding || (textEvent.threadId === this.binding.threadId && textEvent.turnId === this.binding.turnId))) {
+      const key = JSON.stringify([textEvent.threadId, textEvent.turnId, textEvent.itemId]);
+      const previous = this.items.get(key);
+      if (previous && previous.kind !== 'message') throw new Error('同一执行项类型发生冲突，需核对状态');
+      if (!previous || previous.status !== 'completed') {
+        this.items.set(key, { kind: 'message', threadId: textEvent.threadId, turnId: textEvent.turnId, itemId: textEvent.itemId,
+          text: textEvent.action === 'delta' ? (previous?.text ?? '') + textEvent.text : textEvent.text,
+          phase: textEvent.action === 'delta' ? previous?.phase ?? null : textEvent.phase,
+          status: textEvent.action === 'completed' ? 'completed' : 'running' });
+      }
+    }
+    const commandEvent = this.ended ? null : parseCommandEvent(message);
+    if (commandEvent && (!this.binding || (commandEvent.threadId === this.binding.threadId && commandEvent.turnId === this.binding.turnId))) {
+      const key = JSON.stringify([commandEvent.threadId, commandEvent.turnId, commandEvent.itemId]);
+      const previous = this.items.get(key);
+      if (previous && previous.kind !== 'command') throw new Error('同一执行项类型发生冲突，需核对状态');
+      if (!previous || previous.status === 'running') {
+        if (commandEvent.action === 'snapshot') this.items.set(key, { ...commandEvent.item, output: commandEvent.item.output ?? previous?.output ?? null });
+        else {
+          if (!previous) throw new Error('命令输出缺少执行项上下文，需核对状态');
+          this.items.set(key, { ...previous, output: (previous.output ?? '') + commandEvent.output });
+        }
+      }
+    }
+    const fileEvent = this.ended ? null : parseFileChangeEvent(message);
+    if (fileEvent && (!this.binding || (fileEvent.threadId === this.binding.threadId && fileEvent.turnId === this.binding.turnId))) {
+      const key = JSON.stringify([fileEvent.threadId, fileEvent.turnId, fileEvent.itemId]);
+      const previous = this.items.get(key);
+      if (previous && previous.kind !== 'fileChange') throw new Error('同一执行项类型发生冲突，需核对状态');
+      if (!previous || previous.status === 'running') this.items.set(key, fileEvent);
+    }
+    if (message && typeof message === 'object' && 'method' in message && message.method === 'serverRequest/resolved') {
+      const params = (message as { params?: { threadId?: unknown; requestId?: unknown } }).params;
+      for (const entry of this.approvals.values()) {
+        if (entry.request.threadId === params?.threadId && entry.request.requestId === params?.requestId && entry.status !== 'stale') entry.status = 'resolved';
+      }
+      this.syncApprovalWait();
+      return;
+    }
+    const completion = parseCompletion(message);
+    if (!completion) return;
+    if (this.bound) this.apply(completion);
+    else this.pending.push(completion);
+  }
+
+  request(message: Record<string, unknown>): void {
+    if (this.invalidated || !this.started) return;
+    const request = parseApprovalRequest(message);
+    if ([...this.approvals.values()].some(entry => entry.request.requestId === request.requestId)) throw new Error('重复审批请求标识，需核对状态');
+    const current = this.bound ? readWorkspace(this.root).tasks.find(value => value.taskId === this.task.taskId) : null;
+    const stale = this.bound && (!this.matchesApproval(request) || !current || !['running', 'waitingApproval'].includes(current.executionState));
+    this.approvals.set(randomUUID(), { request, status: stale ? 'stale' : 'pending' });
+    this.syncApprovalWait();
+  }
+
+  readApprovals() {
+    if (!this.binding) return [];
+    return [...this.approvals].filter(([, entry]) => this.matchesApproval(entry.request)).map(([approvalToken, entry]) => {
+      const { requestId: _requestId, ...details } = entry.request;
+      return { ...details, network: details.network ? { ...details.network } : null, approvalToken,
+        status: this.invalidated && (entry.status === 'pending' || entry.status === 'responding') ? 'stale' as const : entry.status };
+    });
+  }
+
+  readItems(): ExecutionItem[] {
+    if (!this.binding) return [];
+    return [...this.items.values()].filter(item => item.threadId === this.binding!.threadId && item.turnId === this.binding!.turnId)
+      .map(item => structuredClone(item));
+  }
+
+  readPlan(): ExecutionPlan | undefined {
+    const plan = this.binding ? this.plans.get(JSON.stringify([this.binding.threadId, this.binding.turnId])) : undefined;
+    return plan ? structuredClone(plan) : undefined;
+  }
+
+  async answer(approvalToken: string, decision: 'accept' | 'decline'): Promise<void> {
+    const entry = this.approvals.get(approvalToken);
+    if (this.invalidated || !this.connection || !this.bound || !entry || entry.status !== 'pending' || !this.matchesApproval(entry.request)) throw new Error('审批已失效或不属于当前轮次');
+    if (decision !== 'accept' && decision !== 'decline') throw new Error('首版仅支持本次允许或拒绝');
+    const task = readWorkspace(this.root).tasks.find(value => value.taskId === this.task.taskId);
+    if (task?.executionState !== 'waitingApproval' || task.threadId !== entry.request.threadId || task.turnId !== entry.request.turnId) throw new Error('当前任务审批已失效，不能继续提交');
+    entry.status = 'responding';
+    try { await answerApproval(this.connection, entry.request, decision); }
+    catch (error) {
+      try { this.disconnected(); }
+      catch (storageError) { throw new AggregateError([error, storageError], '审批应答结果未知，核对状态未能保存'); }
+      throw error;
+    }
+  }
+
+  private matchesApproval(request: ApprovalRequest): boolean {
+    return request.threadId === this.binding?.threadId && request.turnId === this.binding?.turnId;
+  }
+
+  private syncApprovalWait(): void {
+    if (!this.binding || this.invalidated) return;
+    const waiting = [...this.approvals.values()].some(entry => this.matchesApproval(entry.request) && (entry.status === 'pending' || entry.status === 'responding'));
+    updateApprovalWait(this.root, this.task.taskId, this.intent.operationId, this.binding.threadId, this.binding.turnId, waiting);
+  }
+
+  async stop(): Promise<void> {
+    if (this.invalidated || !this.bound || !this.binding || !this.connection) throw new Error('尚无有效轮次或连接已失效，不能发送停止');
+    const { threadId, turnId } = this.binding;
+    beginTaskStop(this.root, this.task.taskId, this.intent.operationId, threadId, turnId);
+    for (const entry of this.approvals.values()) if (entry.status === 'pending' || entry.status === 'responding') entry.status = 'stale';
+    let resolveCompletion!: (completion: ReturnType<typeof parseCompletion>) => void;
+    const completed = new Promise<ReturnType<typeof parseCompletion>>(resolve => { resolveCompletion = resolve; });
+    this.stopCompletion = resolveCompletion;
+    const timer = setTimeout(() => resolveCompletion(null), 30000);
+    try {
+      await interruptTurn(this.connection, threadId, turnId);
+      const completion = await completed;
+      if (!completion || this.invalidated) throw new Error('轮次停止尚未确认，需核对状态');
+      await terminateBackgroundTerminals(this.connection, threadId, new Set(this.readItems().filter(item => item.kind === 'command').map(item => item.itemId)));
+      if (this.invalidated) throw new Error('后台清理期间连接失效，需核对状态');
+      this.stopCompletion = null;
+      this.apply(completion);
+    } catch (error) {
+      try { this.disconnected(); }
+      catch (storageError) { throw new AggregateError([error, storageError], '停止结果未知，且核对状态未能落盘；禁止重发'); }
+      throw error;
+    } finally { clearTimeout(timer); this.stopCompletion = null; }
+  }
+
+  async steer(text: string) {
+    if (this.invalidated || !this.bound || !this.binding || !this.connection || this.steering) throw new Error('当前连接或补充请求尚不可用，请保留输入');
+    const task = readWorkspace(this.root).tasks.find(value => value.taskId === this.task.taskId);
+    if (!task || task.threadId !== this.binding.threadId || task.turnId !== this.binding.turnId ||
+        !['running', 'waitingApproval', 'waitingInput'].includes(task.executionState)) throw new Error('当前轮次不接受补充，请保留输入；不会新建轮次');
+    this.steering = true;
+    try {
+      const result = await steerTurn(this.connection, this.binding.threadId, this.binding.turnId, text);
+      if (this.invalidated) throw new Error('连接已失效，补充接收结果需核对；请保留输入');
+      return result;
+    } finally { this.steering = false; }
+  }
+
+  disconnected(): void {
+    if (this.invalidated) return;
+    this.invalidated = true;
+    this.stopCompletion?.(null);
+    this.pending = [];
+    // 未决 RPC 的失败由 submitFirstTurn 落盘；已确认轮次则在此失效。
+    if (this.bound) this.markUnknown();
+  }
+
+  private apply(completion: NonNullable<ReturnType<typeof parseCompletion>>): void {
+    if (this.stopCompletion && this.binding?.threadId === completion.threadId && this.binding.turnId === completion.turnId) {
+      this.stopCompletion(completion);
+      return;
+    }
+    if (settleTaskTurn(this.root, this.task.taskId, this.intent.operationId, completion.threadId, completion.turnId, completion.state)) {
+      this.ended = true;
+      for (const entry of this.approvals.values()) if (entry.status === 'pending' || entry.status === 'responding') entry.status = 'stale';
+    }
+  }
+
+  private markUnknown(): void {
+    const task = readWorkspace(this.root).tasks.find(value => value.taskId === this.task.taskId);
+    if (!task) throw new Error('执行任务记录缺失，无法保存核对状态');
+    if (['completed', 'failed', 'interrupted'].includes(task.executionState)) return;
+    markSubmissionUncertain(this.root, task.taskId, this.intent.operationId,
+      new Date(Math.max(Date.now(), Date.parse(task.observedAt))).toISOString());
+  }
+}

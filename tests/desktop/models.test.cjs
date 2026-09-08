@@ -96,7 +96,7 @@ test('disabledConnection：连接关闭保留密钥，重新启用不要求重�
   await enabled.click();
   await page.waitForFunction(async () => !(await window.agentx.getModelSettings()).enabled);
   assert.equal((await page.evaluate(() => window.agentx.getModelSettings())).hasCredential, true);
-  await page.getByText('连接已关闭，密钥与模型选择已保留。', { exact: true }).waitFor();
+  await page.getByText('连接已关闭，密钥与模型选择已保留，新轮不可使用此连接。', { exact: true }).waitFor();
   await enabled.click();
   await page.waitForFunction(async () => (await window.agentx.getModelSettings()).enabled);
   assert.equal((await page.evaluate(() => window.agentx.getModelSettings())).hasCredential, true);

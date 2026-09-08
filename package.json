@@ -12,7 +12,7 @@
     "start": "electron-forge start",
     "typecheck": "tsc --noEmit",
     "package": "electron-forge package --platform=win32 --arch=x64",
-    "test": "node --test --test-concurrency=1 tests/desktop/foundation.test.cjs tests/desktop/models.test.cjs tests/desktop/projects.test.cjs"
+    "test": "node --test --test-concurrency=1 tests/unit/engine-resources.test.cjs tests/unit/codex-transport.test.cjs tests/unit/codex-approvals.test.cjs tests/unit/codex-handshake.test.cjs tests/unit/codex-configuration.test.cjs tests/unit/codex-execution.test.cjs tests/unit/execution-submission.test.cjs tests/unit/execution-service.test.cjs tests/unit/project-execution-projection.test.cjs tests/unit/drafts.test.cjs tests/unit/plans.test.cjs tests/unit/file-patch-events.test.cjs tests/unit/session-approvals.test.cjs tests/unit/session-items.test.cjs tests/unit/submission-storage.test.cjs tests/desktop/foundation.test.cjs tests/desktop/models.test.cjs tests/desktop/projects.test.cjs tests/desktop/engine-resources.test.cjs tests/desktop/execution-model.test.cjs tests/desktop/execution-bridge.test.cjs tests/desktop/workbench-execution.test.cjs tests/desktop/workbench-submit.test.cjs tests/desktop/drafts.test.cjs"
   },
   "dependencies": {
     "react": "19.2.8",
