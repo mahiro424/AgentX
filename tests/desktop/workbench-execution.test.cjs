@@ -58,6 +58,7 @@ test('reconciling 与 staleApproval：断线后旧审批不可操作，页面往
   await card.getByText('请求已失效', { exact: true }).waitFor();
   assert.equal(await page.getByRole('textbox', { name: '任务要求' }).inputValue(), '断线后保留的中文草稿');
   await page.getByRole('textbox', { name: '任务要求' }).press('Control+Enter');
+  await page.getByRole('textbox', { name: '任务要求' }).press('Enter');
   await page.screenshot({ path: path.resolve('.local-validation/m1-04/106-reconciling-stale.png') });
   assert.deepEqual(await app.evaluate(() => globalThis.unexpectedExecutionCalls), []);
 });
@@ -146,7 +147,11 @@ test('running：真实工作台显示执行项，输入主按钮切换为停止�
   assert.equal(await firstApproval.getByRole('button', { name: '允许本次', exact: true }).isDisabled(), true);
   assert.equal(await secondApproval.getByRole('button', { name: '拒绝', exact: true }).isEnabled(), true);
   await secondApproval.getByRole('button', { name: '拒绝', exact: true }).click();
-  await page.getByRole('button', { name: '补充要求', exact: true }).click();
+  await page.getByRole('textbox', { name: '任务要求' }).press('Control+Enter');
+  assert.equal(await page.getByRole('textbox', { name: '任务要求' }).inputValue(), '保留这段补充草稿\n');
+  assert.equal(await page.getByRole('button', { name: '停止', exact: true }).isEnabled(), true);
+  await page.getByRole('textbox', { name: '任务要求' }).fill('保留这段补充草稿');
+  await page.getByRole('textbox', { name: '任务要求' }).press('Enter');
   await page.getByRole('alert').filter({ hasText: '合成补充失败' }).waitFor();
   assert.equal(await page.getByRole('textbox', { name: '任务要求' }).inputValue(), '保留这段补充草稿');
   await page.getByRole('button', { name: '补充要求', exact: true }).click();

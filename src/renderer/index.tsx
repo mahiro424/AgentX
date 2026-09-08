@@ -245,17 +245,29 @@ function App() {
           <option value="choose-directory">选择本地文件夹…</option>
         </select></div>
         <section className="composer" aria-label="任务输入">
-          {canSteer && <div className="composer-supplement"><button className="supplement-button" aria-label="补充要求" title="补充要求（Ctrl+Enter）"
-            disabled={!draft.trim() || !!steeringTaskId || !!execution.error} onClick={() => void supplement()}>{steeringTaskId ? '正在补充…' : '补充要求 (Ctrl+Enter)'}</button></div>}
+          {canSteer && <div className="composer-supplement"><button className="supplement-button" aria-label="补充要求" title="补充要求（Enter）"
+            disabled={!draft.trim() || !!steeringTaskId || !!execution.error} onClick={() => void supplement()}>{steeringTaskId ? '正在补充…' : '补充要求 (Enter)'}</button></div>}
           <label className="sr-only" htmlFor="task-draft">任务要求</label>
           <textarea id="task-draft" ref={input} value={draft} disabled={draftState.loading} onChange={event => { draftRevision.current++; setDraft(event.target.value); }}
             onKeyDown={event => {
-              if (!event.ctrlKey || event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+              if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+              if (event.ctrlKey && !event.altKey && !event.metaKey) {
+                event.preventDefault();
+                const textarea = event.currentTarget;
+                const start = textarea.selectionStart, end = textarea.selectionEnd;
+                draftRevision.current++;
+                setDraft(`${draft.slice(0, start)}\n${draft.slice(end)}`);
+                requestAnimationFrame(() => {
+                  if (document.activeElement === textarea) textarea.setSelectionRange(start + 1, start + 1);
+                });
+                return;
+              }
+              if (event.shiftKey || event.altKey || event.metaKey) return;
               event.preventDefault();
               if (canSteer) void supplement();
               else if (!blockedReason && !showStop) void sendFirstTurn();
             }}
-            placeholder="描述你想完成的工作…" />
+            placeholder="描述你想完成的工作…" title="Enter 发送，Ctrl+Enter 换行" />
           <div className="composer-toolbar">
             <span className="muted">请求批准</span>
             {currentExecution?.task ? <span className="model-state">{FLASH_MODEL_ID} · 本轮</span>
