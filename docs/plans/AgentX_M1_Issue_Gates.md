@@ -17,8 +17,8 @@
 | [M1-02](https://github.com/mahiro424/AgentX/issues/7) | DeepSeek 模型设置与系统凭据保护 | enhancement | M1-01、D-settings 合并 | 已关闭；PR #15 已合入 m1，用户已确认 UI |
 | [M1-03](https://github.com/mahiro424/AgentX/issues/8) | 本地项目关联与真实会话入口 | enhancement | M1-01 合并 | 已关闭；PR #16 已合入 m1，用户已确认本切片视觉 |
 | [M1-04](https://github.com/mahiro424/AgentX/issues/9) | 首次真实执行与原生审批控制 | enhancement | M1-02、M1-03、D-workbench 合并 | 已关闭；PR #17 已合入 m1，用户已完成 DPI / 中文输入法验收 |
-| [M1-05](https://github.com/mahiro424/AgentX/issues/10) | 检查实际结果、续轮与已结束历史恢复 | enhancement | M1-04 合并；外框基础为传递依赖 | ready-for-agent；独立分支 m1-05 |
-| [M1-06](https://github.com/mahiro424/AgentX/issues/11) | 任务存活、托盘与退出核对 | enhancement | M1-04、M1-05 合并 | ready-for-human |
+| [M1-05](https://github.com/mahiro424/AgentX/issues/10) | 检查实际结果、续轮与已结束历史恢复 | enhancement | M1-04 合并；外框基础为传递依赖 | 已关闭；PR #18 已合入 m1，164/164 与真实续轮验收通过 |
+| [M1-06](https://github.com/mahiro424/AgentX/issues/11) | 任务存活、托盘与退出核对 | enhancement | M1-04、M1-05 合并 | ready-for-agent；独立分支 m1-06 |
 
 M1-06 是在已合并外框上的生命周期补全，不把“全部 app-shell V1 功能完成”反过来设成工作台的前置条件；功能页依赖的是 M1-01 外框基础，避免循环依赖。
 
@@ -56,3 +56,7 @@ GitHub 可读的文档引用应使用仓库内相对路径或已存在的固定�
 ## 页面设计核验记录
 
 [app-shell](../design/M1_app-shell_Review.md)、[workbench](../design/M1_workbench_Review.md)、[settings](../design/M1_settings_Review.md) 已随 PR #13 合入 m1，合并提交为 `babe8c267bd688fa52f943a5e6a166a6107abf7f`。M1-01 的就绪简报已引用实际依赖证据。
+
+## M1-06 进入证据
+
+PR #18 的文档与两组 Windows 打包/无密钥检查通过，2026-09-08 合入 m1：`0df19a402d2fb04e8cc90288c5de13cda6166549`；#10 已关闭，#11 依赖解除。独立分支 m1-06 从此基线开始。用户同时取消后续真实 Flash 固定五轮限制；既有 5/5 记录不改写，后续按必要诊断与验收继续且仍只使用 Flash。M1-06 尚未实现，完整 M1 不算完成。
