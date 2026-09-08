@@ -84,3 +84,9 @@
 ## 7. 技术资料
 
 按 Context7 检索并核对本地与打包行为：[Electron 原生目录选择](https://github.com/electron/electron/blob/main/docs/api/dialog.md)、[Node 文件系统](https://nodejs.org/docs/latest-v24.x/api/fs.html)、[Windows 目录大小写行为](https://learn.microsoft.com/en-us/windows/wsl/case-sensitivity)。迁移前快照参考 [SQLite VACUUM INTO](https://sqlite.org/lang_vacuum.html)，实际失败回滚与快照可读性由本切片测试确认；不将官方 API 文档当作产品验收。
+
+## 8. 集成补记
+
+[PR #16](https://github.com/mahiro424/AgentX/pull/16) 已于 2026-09-08 合入 m1，合并提交 `692930a3653496551b477355e9e80327cb443738`；#8 已关闭，m1-03 分支保留。当前头部 `ff908c462f407a511eda02befa8ed006a3ce7f2a` 的 [Windows PR CI](https://github.com/mahiro424/AgentX/actions/runs/34185937718)、[分支 CI](https://github.com/mahiro424/AgentX/actions/runs/34185880899)、[文档 CI](https://github.com/mahiro424/AgentX/actions/runs/34185937723) 全部通过。master 仍为 `d266bf905f3e7285de4a3e9a415558cca6c0b21d`，没有修改。
+
+前文待 CI/集成为提交时事实，本补记解除本切片门禁。M1-04 已创建独立分支并完成就绪分拣，真实执行、活动事件回归、历史及最终人工专项的剩余范围不变。

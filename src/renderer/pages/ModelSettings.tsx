@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ModelSettings as Settings } from '../../shared/contracts/models';
 import { FLASH_MODEL_ID } from '../../shared/contracts/models';
+import type { ExecutionState } from '../../shared/contracts/projects';
 
-export function ModelSettings() {
+export function ModelSettings({ executionState }: { executionState: ExecutionState | 'preparing' | 'unavailable' | null }) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState('');
   const [keyDraft, setKeyDraft] = useState('');
@@ -135,6 +136,10 @@ export function ModelSettings() {
   return <section className="settings-form" aria-labelledby="models-heading">
     <h2 id="models-heading">模型连接</h2>
     <p className="muted">首版使用 DeepSeek，按需选择工作台可用模型。</p>
+    {executionState && ['preparing', 'submitting', 'running', 'waitingApproval', 'waitingInput', 'stopping'].includes(executionState)
+      && <p role="status" className="muted">当前任务正在准备或执行，新配置仅对下一轮生效。关闭连接不会停止当前轮；如需立即停止，请返回该任务使用停止按钮并等待确认。</p>}
+    {executionState && ['unavailable', 'reconciling', 'unconfirmed'].includes(executionState)
+      && <p role="status" className="muted">执行状态尚未核对。保存配置或关闭连接不代表已有执行已停止；请先核对任务状态，不会自动重发。</p>}
     {!settings && !error && <p role="status">正在读取模型配置…</p>}
     {error && <div id="model-settings-error" role="alert" className="error-message">{error} <button className="secondary-button" onClick={() => void load()}>重试读取</button></div>}
     {settings && <>
@@ -142,7 +147,7 @@ export function ModelSettings() {
         <button role="switch" className="toggle-switch" aria-label="启用 DeepSeek" aria-checked={settings.enabled} disabled={changingConnection}
           onClick={() => void toggleConnection()}><span /></button>
       </label></div>
-      {!settings.enabled && <p role="status" className="muted">连接已关闭，密钥与模型选择已保留。</p>}
+      {!settings.enabled && <p role="status" className="muted">连接已关闭，密钥与模型选择已保留，新轮不可使用此连接。</p>}
       <label className="model-field">服务地址<span className="address-input"><input value="https://api.deepseek.com" readOnly /><span className="muted">固定地址</span></span></label>
       <div className="model-field"><label htmlFor="model-api-key">API Key</label><div className="key-input" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) void saveKey(); }}>
         <input id="model-api-key" aria-invalid={!!keyDraft && !!error} aria-describedby={error ? "model-key-help model-settings-error" : "model-key-help"} type={revealed ? 'text' : 'password'} autoComplete="off" spellCheck={false} value={keyDraft || revealedKey} readOnly={saving || settings.saving}

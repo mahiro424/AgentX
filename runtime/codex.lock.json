@@ -1,0 +1,23 @@
+{
+  "purpose": "AgentX G0 无密钥兼容验证，非产品发布基线",
+  "version": "0.153.4",
+  "tag": "rust-v0.153.4",
+  "tagObject": "042fb41b7c813ac7999105e886b2b7aa715b5081",
+  "commit": "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a",
+  "platform": "win32",
+  "architecture": "x64",
+  "releaseUrl": "https://github.com/openai/codex/releases/tag/rust-v0.153.4",
+  "archive": {
+    "url": "https://github.com/openai/codex/releases/download/rust-v0.153.4/codex-x86_64-pc-windows-msvc.exe.zip",
+    "bytes": 104174469,
+    "sha256": "c016b0e6968b78586919c720d2685a03712f6d5f11bcd9d6f92c91eb8c41ba16"
+  },
+  "binary": {
+    "name": "codex-x86_64-pc-windows-msvc.exe",
+    "bytes": 295408944,
+    "sha256": "444a3f0008050605cae73cd9b7a2dcac61294062dfaab56dd20430fd6498518b"
+  },
+  "digestSource": "GitHub 官方固定 release asset metadata；执行前再次本地计算对照",
+  "license": "Apache-2.0",
+  "patches": []
+}

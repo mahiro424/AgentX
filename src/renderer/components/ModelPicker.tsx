@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { FLASH_MODEL_ID, type ModelSettings } from '../../shared/contracts/models';
 
-export function ModelPicker({ visible, openSettings }: { visible: boolean; openSettings: () => void }) {
+export function ModelPicker({ visible, openSettings, onSettingsChange }: { visible: boolean; openSettings: () => void; onSettingsChange?: (settings: ModelSettings | null) => void }) {
   const [settings, setSettings] = useState<ModelSettings | null>(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const loadSequence = useRef(0);
+  useEffect(() => { onSettingsChange?.(visible && !error && !saving ? settings : null); }, [visible, error, saving, settings, onSettingsChange]);
   async function load() {
     const sequence = ++loadSequence.current;
+    onSettingsChange?.(null);
     try { const loaded = await window.agentx.getModelSettings(); if (sequence === loadSequence.current) { setSettings(loaded); setError(''); } }
     catch (cause) { if (sequence === loadSequence.current) setError(cause instanceof Error ? cause.message : '模型配置读取失败'); }
   }

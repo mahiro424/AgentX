@@ -1,9 +1,26 @@
 import { PROJECT_RENAME_CHANNEL, type ProjectRename, type ProjectRecord, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, type ProjectOperation, type ProjectChoice, WORKSPACE_READ_CHANNEL, type WorkspaceSnapshot } from '../shared/contracts/projects';
 import { contextBridge, ipcRenderer } from 'electron';
+import { DRAFT_READ_CHANNEL, DRAFT_SAVE_CHANNEL, type DraftScope, type DraftRecord, type DraftSave } from '../shared/contracts/drafts';
+import { EXECUTION_READ_CHANNEL, EXECUTION_START_CHANNEL, EXECUTION_STOP_CHANNEL, EXECUTION_CHANGED_CHANNEL, type ExecutionStart, type ExecutionControl, type ExecutionSnapshot } from '../shared/contracts/execution';
+import type { TaskSummary } from '../shared/contracts/projects';
+import { EXECUTION_STEER_CHANNEL, EXECUTION_APPROVAL_CHANNEL, type ExecutionSteer, type ExecutionApproval } from '../shared/contracts/execution';
 import { APP_INFO_CHANNEL, PREFERENCES_READ_CHANNEL, PREFERENCES_SAVE_CHANNEL, type AgentXBridge, type AppInfo, type Preferences } from '../shared/contracts/app';
 import { MODEL_SETTINGS_CHANGED_CHANNEL, MODEL_TEST_CHANNEL, type ModelTestRequest, MODEL_SETTINGS_READ_CHANNEL, MODEL_KEY_SAVE_CHANNEL, MODEL_KEY_REVEAL_CHANNEL, MODEL_SETTINGS_VISIBLE_CHANNEL, MODEL_ENABLED_CHANNEL, MODEL_CATALOG_FETCH_CHANNEL, MODEL_SELECTION_CHANNEL, MODEL_ACTIVE_CHANNEL, type ModelSelectionChange, type ActiveModelChange, type ConnectionChange, type KeySubmission, type ModelOperation, type ModelSettings } from '../shared/contracts/models';
 
 const bridge: AgentXBridge = Object.freeze({
+  getDraft: (value: DraftScope): Promise<DraftRecord> => ipcRenderer.invoke(DRAFT_READ_CHANNEL, value),
+  saveDraft: (value: DraftSave): Promise<DraftRecord> => ipcRenderer.invoke(DRAFT_SAVE_CHANNEL, value),
+  getExecution: (): Promise<ExecutionSnapshot> => ipcRenderer.invoke(EXECUTION_READ_CHANNEL),
+  startExecution: (value: ExecutionStart): Promise<TaskSummary> => ipcRenderer.invoke(EXECUTION_START_CHANNEL, value),
+  stopExecution: (value: ExecutionControl): Promise<void> => ipcRenderer.invoke(EXECUTION_STOP_CHANNEL, value),
+  steerExecution: (value: ExecutionSteer): Promise<void> => ipcRenderer.invoke(EXECUTION_STEER_CHANNEL, value),
+  answerExecutionApproval: (value: ExecutionApproval): Promise<void> => ipcRenderer.invoke(EXECUTION_APPROVAL_CHANNEL, value),
+  onExecutionChanged: (listener: () => void): (() => void) => {
+    if (typeof listener !== 'function') throw new Error('执行状态监听器无效');
+    const notify = () => listener();
+    ipcRenderer.on(EXECUTION_CHANGED_CHANNEL, notify);
+    return () => ipcRenderer.removeListener(EXECUTION_CHANGED_CHANNEL, notify);
+  },
   renameProject: (value: ProjectRename): Promise<ProjectRecord> => ipcRenderer.invoke(PROJECT_RENAME_CHANNEL, value),
   chooseProject: (value: ProjectOperation): Promise<ProjectChoice> => ipcRenderer.invoke(PROJECT_CHOOSE_CHANNEL, value),
   onWorkspaceChanged: (listener: () => void): (() => void) => {

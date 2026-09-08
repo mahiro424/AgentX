@@ -34,7 +34,8 @@ test('M1-03 selecting：原生单目录选择可取消，不写入记录或清�
   assert.deepEqual((await app.evaluate(() => globalThis.directoryOptions)).properties, ['openDirectory']);
   assert.deepEqual(await page.evaluate(() => window.agentx.getWorkspace()), { projects: [], tasks: [] });
   assert.equal(await page.getByRole('textbox', { name: '任务要求' }).inputValue(), '取消选目录也保留');
-  assert.equal((await fs.readdir(data)).includes('agentx.db'), false);
+  await page.getByRole('status').filter({ hasText: '草稿已保存' }).waitFor();
+  assert.equal((await page.evaluate(() => window.agentx.getDraft({ projectId: null, taskId: null }))).text, '取消选目录也保留');
 });
 
 test('M1-03 associated：中文空格目录真实关联并重开，不复制或改动原件', { timeout: 90000 }, async t => {
@@ -303,7 +304,7 @@ test('迁移失败：旧版模型数据先留一致性快照，失败整体回�
     finally { db.close(); }
   });
   assert.deepEqual(result, { version: 3, hasProjects: false, catalog: '["synthetic-model"]' });
-  assert.ok((await fs.readdir(data)).some(name => /^agentx\.before-v5\..+\.db$/.test(name)));
+  assert.ok((await fs.readdir(data)).some(name => /^agentx\.before-v7\..+\.db$/.test(name)));
 });
 
 test('损坏记录：项目字段与会话目录关联损坏时报错，不隐藏或错误归组', { timeout: 30000 }, async t => {
@@ -348,13 +349,41 @@ test('compact / keyboard：紧凑新会话离开旧记录，菜单 resize 关闭
   await page.getByRole('button', { name: '展开侧栏' }).waitFor();
   await page.getByRole('button', { name: '新会话', exact: true }).click();
   await page.getByRole('heading', { name: '今天想完成什么工作？' }).waitFor();
-  assert.equal(await page.getByRole('textbox', { name: '任务要求' }).inputValue(), '仍保留输入');
+  assert.equal(await page.getByRole('textbox', { name: '任务要求' }).inputValue(), '');
   await page.getByRole('button', { name: '展开侧栏' }).click();
+  await page.getByRole('button', { name: '刚才查看的记录', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#task-draft').value === '仍保留输入');
   await page.getByRole('button', { name: '项目操作：键盘项目' }).focus(); await page.keyboard.press('Enter');
   await page.getByRole('menuitem', { name: '编辑名称' }).waitFor();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(980, 660));
   await page.getByRole('menu').waitFor({ state: 'hidden' });
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '项目操作：键盘项目');
+});
+
+test('侧栏焦点：展开后的延迟恢复不抢走用户已移到项目操作上的焦点', { timeout: 30000 }, async t => {
+  const { app, page, data } = await launch();
+  t.after(() => app.close());
+  const directory = path.join(data, '焦点项目'); await fs.mkdir(directory);
+  await chooseDirectory(app, page, directory);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 640));
+  await page.getByRole('button', { name: '展开侧栏' }).waitFor();
+  await page.evaluate(() => {
+    const original = window.requestAnimationFrame;
+    const callbacks = [];
+    window.requestAnimationFrame = callback => { callbacks.push(callback); return callbacks.length; };
+    window.releaseSidebarFrames = () => {
+      window.requestAnimationFrame = original;
+      for (const callback of callbacks) callback(performance.now());
+      delete window.releaseSidebarFrames;
+    };
+  });
+  await page.getByRole('button', { name: '展开侧栏' }).click();
+  const trigger = page.getByRole('button', { name: '项目操作：焦点项目' });
+  await trigger.focus();
+  await page.evaluate(() => window.releaseSidebarFrames());
+  assert.equal(await trigger.evaluate(element => document.activeElement === element), true);
+  await page.keyboard.press('Enter');
+  await page.getByRole('menuitem', { name: '编辑名称' }).waitFor();
 });
 
 test('关联失败反馈：目录读取失败不被晚到的正常列表读取抹掉', { timeout: 30000 }, async t => {
@@ -448,7 +477,7 @@ test('迁移成功：M1-02 模型记录与保存保护标记保留，备份能�
   assert.deepEqual(readCatalog(data), { modelIds: ['synthetic-model'], fetchedAt: '2026-09-01T00:00:00.000Z', configRevision: 7 });
   assert.equal(readModelTests(data)[0].error, '合成历史错误');
   assert.match(readKeySaveFailure(data, 'synthetic-reference'), /不会使用旧 Key/);
-  const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v5\..+\.db$/.test(name));
+  const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v7\..+\.db$/.test(name));
   assert.equal(backups.length, 1);
   const original = await app.evaluate((_electron, filename) => {
     const { DatabaseSync } = process.getBuiltinModule('node:sqlite');

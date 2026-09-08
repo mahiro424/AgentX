@@ -21,6 +21,24 @@ export class ModelService {
   private keySaveError: string | null = null;
   constructor(private readonly root: string) {}
 
+  // Main 执行协调专用；包含明文凭据，不属于 ModelSettings，也不得经 IPC 返回。
+  async captureExecution(expectedRevision: unknown) {
+    const check = () => {
+      const state = this.read();
+      if (!Number.isSafeInteger(expectedRevision) || state.configRevision !== expectedRevision) throw new Error('模型配置已变化，未开始执行');
+      if (state.saving || state.keySaveError) throw new Error('密钥保存尚未成功，未开始执行');
+      if (!state.enabled || !state.hasCredential) throw new Error('请先启用模型连接并保存 API Key');
+      if (state.activeModelId !== FLASH_MODEL_ID || !state.selectedModelIds.includes(FLASH_MODEL_ID) || !state.catalog.modelIds.includes(FLASH_MODEL_ID)) throw new Error('执行只允许已选中的 deepseek-v4-flash');
+      if (state.tests.some(result => result.modelId === FLASH_MODEL_ID && !result.expired && result.outcome === 'failed')) throw new Error('Flash 测试未成功，请先在设置中核对连接');
+      return this.connection();
+    };
+    const before = check();
+    const apiKey = await decryptCredential(this.root, before.credentialRef!);
+    const after = check();
+    if (after.credentialRef !== before.credentialRef) throw new Error('模型凭据已变化，未使用旧密钥开始执行');
+    return Object.freeze({ modelId: FLASH_MODEL_ID, configRevision: before.configRevision, credentialRef: before.credentialRef!, apiKey });
+  }
+
   private connection(): ModelConnection {
     const value = readConfiguration(this.root).modelConnection as ModelConnection | undefined;
     if (value === undefined) return { configRevision: 0, enabled: true, selectedModelIds: [], credentialRef: null, activeModelId: null };
