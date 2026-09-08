@@ -13,6 +13,7 @@ import type { ModelService } from './models';
 import { prepareCodexConfiguration, prepareCodexHistoryConfiguration } from '../runtime/codex/configuration';
 import { openExecutionCodex, openCodex } from '../runtime/codex/process';
 import { readThreadHistory } from '../runtime/codex/history';
+import { readReconciliation } from './reconciliation';
 import type { TaskHistory } from '../../shared/contracts/history';
 import { FLASH_MODEL_ID } from '../../shared/contracts/models';
 import type { ExecutionItem, ExecutionSnapshot, ExecutionControl, ExecutionPlan } from '../../shared/contracts/execution';
@@ -33,7 +34,7 @@ export class ExecutionService {
   private readonly instanceId = randomUUID();
   private runtimeLeaseId: string | null = null;
   private current: { taskId: string; operationId: string; session: FirstTurnSession } | null = null;
-  private historyReads = new Set<Promise<TaskHistory>>();
+  private historyReads = new Set<Promise<unknown>>();
 
   constructor(private readonly root: string, private readonly resourcesDirectory: string,
     private readonly models: Pick<ModelService, 'captureExecution'>, private readonly onChange: () => void = () => {}) {}
@@ -41,11 +42,14 @@ export class ExecutionService {
   read(): ExecutionSnapshot {
     const plan = this.current?.session.readPlan();
     const intent = this.current ? readSubmissionIntent(this.root, this.current.operationId) : null;
+    const reconciliationTaskIds = [...new Set(readRuntimeLeases(this.root).filter(lease => lease.releasedAt === null &&
+      (lease.leaseId !== this.runtimeLeaseId || (!this.preparing && this.error !== null))).map(lease => lease.taskId))];
     if (intent && intent.taskId !== this.current?.taskId) throw new Error('发送意图归属不一致，请核对任务记录');
     return { preparing: this.preparing,
       task: this.current ? readWorkspace(this.root).tasks.find(task => task.taskId === this.current!.taskId) ?? null : null,
       operationId: this.current?.operationId ?? null, items: this.current?.session.readItems() ?? [],
-      approvals: this.current?.session.readApprovals() ?? [], error: this.error, ...(plan ? { plan } : {}), ...(intent ? { inputText: intent.text } : {}) };
+      approvals: this.current?.session.readApprovals() ?? [], error: this.error, ...(plan ? { plan } : {}), ...(intent ? { inputText: intent.text } : {}),
+      ...(reconciliationTaskIds.length ? { reconciliationTaskIds } : {}) };
   }
 
   async readHistory(input: unknown): Promise<TaskHistory> {
@@ -74,6 +78,14 @@ export class ExecutionService {
       finally { await runtime.close(); }
     };
     const pending = load();
+    this.historyReads.add(pending);
+    try { return await pending; }
+    finally { this.historyReads.delete(pending); }
+  }
+
+  async readReconciliation(input: unknown) {
+    if (this.closing || this.preparing) throw new Error('正在准备执行或退出，请等待当前操作结束后核对');
+    const pending = readReconciliation(this.root, this.resourcesDirectory, input, this.runtime?.transport);
     this.historyReads.add(pending);
     try { return await pending; }
     finally { this.historyReads.delete(pending); }

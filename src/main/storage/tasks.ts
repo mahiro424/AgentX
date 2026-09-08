@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { EXECUTION_STATES, type TaskSummary } from '../../shared/contracts/projects';
 import { withDatabase } from './database';
 import { FLASH_MODEL_ID } from '../../shared/contracts/models';
+import type { ReconciliationIntent } from '../../shared/contracts/reconciliation';
 
 interface SubmissionInput {
   operationId: string;
@@ -125,6 +126,21 @@ export function readTaskRecords(database: DatabaseSync): TaskSummary[] {
     taskId: row.task_id as string, projectId: row.project_id as string, title: row.title as string, directory: row.directory as string,
     lastActivityAt: row.last_activity_at as string, observedAt: row.observed_at as string, executionState: row.execution_state as TaskSummary['executionState'],
     threadId: row.thread_id as string | null, turnId: row.turn_id as string | null,
+  }));
+}
+
+export function readTaskSubmissionIntents(root: string, taskId: string): ReconciliationIntent[] {
+  return withDatabase(root, database => database.prepare('SELECT * FROM execution_intents WHERE task_id=? ORDER BY created_at, operation_id').all(taskId).map(row => {
+    validateSubmission({ operationId: row.operation_id as string, text: row.input_text as string, modelId: row.model_id as string,
+      configRevision: row.config_revision as number, credentialRef: row.credential_ref as string });
+    const value: ReconciliationIntent = { operationId: row.operation_id as string, phase: row.phase as ReconciliationIntent['phase'],
+      turnId: row.turn_id as string | null, createdAt: row.created_at as string };
+    if (!['prepared', 'sent', 'acknowledged', 'unknown', 'settled'].includes(value.phase) ||
+        !Number.isFinite(Date.parse(value.createdAt)) || new Date(value.createdAt).toISOString() !== value.createdAt ||
+        (value.turnId !== null && (typeof value.turnId !== 'string' || !value.turnId.trim() || value.turnId.length > 512 || /[\u0000-\u001f\u007f]/u.test(value.turnId)))) {
+      throw new Error('invalid-submission-reconciliation');
+    }
+    return value;
   }));
 }
 

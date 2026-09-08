@@ -11,6 +11,7 @@ import { ModelPicker } from './components/ModelPicker';
 import { useExecution } from './workbench/useExecution';
 import { useHistory } from './workbench/useHistory';
 import { HistoryTimeline } from './workbench/HistoryTimeline';
+import { ReconciliationNotice } from './workbench/ReconciliationNotice';
 import { ResultsPanel } from './workbench/ResultsPanel';
 import { OutputPanel } from './workbench/OutputPanel';
 import type { CommandItem } from '../shared/contracts/execution';
@@ -87,9 +88,13 @@ function App() {
   selection.current.projectId = workspace.selectedProjectId;
   selection.current.taskId = workspace.selectedTaskId;
   const busyTask = workspace.snapshot?.tasks.find(task => !['idle', 'completed', 'failed', 'interrupted'].includes(task.executionState));
+  const reconciliationTaskIds = execution.snapshot?.reconciliationTaskIds ?? [];
+  const reconciliationTaskId = selectedTask?.executionState === 'reconciling' || (selectedTask && reconciliationTaskIds.includes(selectedTask.taskId))
+    ? selectedTask!.taskId : reconciliationTaskIds[0] ?? (busyTask?.executionState === 'reconciling' ? busyTask.taskId : null);
   const blockedReason = submitting || execution.snapshot?.preparing ? '正在提交，请等待确认，不会重复发送。'
     : draftState.loading || draftState.saving || draftState.error ? '请先确认草稿已读取并保存。'
     : !workspace.snapshot || workspace.error || !execution.snapshot || execution.error ? '请先完成项目和执行状态读取。'
+    : reconciliationTaskIds.length ? '存在引擎或后台回收待核对，不会发送新任务。'
     : busyTask ? '有活动或待核对任务，不能开始另一个任务。'
     : workspace.selectedTaskId && (!selectedTask?.threadId || !canInspect) ? '本会话没有已确认结束的轮次，请先核对状态。'
     : !selectedProject ? '请先选择本地项目。'
@@ -255,13 +260,14 @@ function App() {
     <div className="workspace">
       <header className="window-bar drag-region">{!sidebarOpen && <><button ref={sidebarToggle} className="icon-button" aria-label="展开侧栏" onClick={toggleSidebar}><PanelIcon /></button><button className="icon-button" aria-label="新会话" onClick={newSession}>＋</button><button className="icon-button" aria-label="设置" onClick={() => setView('settings')}><SettingsIcon /></button></>}</header>
       <div className={`workbench-layout${resultsOpen || outputItem ? ' has-results' : ''}`} hidden={view !== 'workbench'}>
-      <main className={`welcome${selectedTask || currentExecution?.task ? ' execution-workbench' : ''}`}>
+      <main className={`welcome${selectedTask || currentExecution?.task || reconciliationTaskId ? ' execution-workbench' : ''}`}>
         <div className="welcome-heading">
           <h1 title={selectedTask?.title}>{selectedTask?.title ?? '今天想完成什么工作？'}</h1>
           <p>{currentState ? currentState === 'stopping' ? '正在停止，等待引擎确认…' : taskStateLabel[currentState] : selectedTask ? taskStateLabel[selectedTask.executionState] : '用自然语言描述目标，在这里开始工作。'}</p>
           {canInspect && <button ref={resultsTrigger} className="secondary-button inspect-results" aria-label="查看文件改动" aria-expanded={resultsOpen} onClick={() => { setOutputSelection(null); setResultsTask(selectedTask!.taskId); }}>查看文件改动</button>}
         </div>
-        {(selectedTask || currentExecution) && <div className="execution-transcript">
+        {(selectedTask || currentExecution || reconciliationTaskId) && <div className="execution-transcript">
+        {reconciliationTaskId && <ReconciliationNotice key={reconciliationTaskId} taskId={reconciliationTaskId} />}
         {history.loading && <p role="status" className="muted">正在读取会话历史…</p>}
         {history.error && <p role="alert" className="error-message">历史读取失败：{history.error} <button className="secondary-button" onClick={() => void history.load()}>重新读取历史</button></p>}
         {history.value && (history.loading || history.error || history.value.turns.at(-1)?.turnId !== selectedTask?.turnId) && <p className="muted">以下保留先前成功读取的历史，不代表当前轮已结束。</p>}

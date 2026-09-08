@@ -130,6 +130,7 @@ test('重开后轮次已结束但后台未核对：持久化归属仍阻止新�
   const { ExecutionService } = require('../../src/main/services/execution.ts');
   const reopened = new ExecutionService(f.root, f.root, { captureExecution: async () => assert.fail('未核对归属，不得读取模型密钥') });
   t.after(() => reopened.close());
+  assert.deepEqual(reopened.read().reconciliationTaskIds, [f.task.taskId]);
   assert.equal(reopened.needsExitConfirmation(), true);
   await assert.rejects(reopened.shutdown(), /后台.*核对|核对.*后台/);
   await assert.rejects(reopened.start({ ...f.request, taskId: randomUUID(), operationId: randomUUID() }), /核对/);

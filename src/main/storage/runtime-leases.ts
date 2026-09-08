@@ -1,5 +1,7 @@
 import { validateProcessIdentity, type ProcessIdentity } from '../lifecycle/process-identity';
 import { withDatabase } from './database';
+import { statSync } from 'node:fs';
+import path from 'node:path';
 
 interface RuntimeLeaseInput {
   leaseId: string;
@@ -41,6 +43,11 @@ export function acquireRuntimeLease(root: string, value: RuntimeLeaseInput): voi
 }
 
 export function readRuntimeLeases(root: string): RuntimeLease[] {
+  try { statSync(path.join(root, 'agentx.db')); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw new Error('无法核对产品数据库是否存在，不能当作没有引擎归属记录');
+  }
   return withDatabase(root, database => database.prepare('SELECT * FROM runtime_leases ORDER BY created_at, lease_id').all().map(row => {
     const value: RuntimeLease = { leaseId: row.lease_id as string, instanceId: row.instance_id as string,
       taskId: row.task_id as string, operationId: row.operation_id as string, projectId: row.project_id as string,

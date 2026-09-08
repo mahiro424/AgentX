@@ -2,6 +2,8 @@
 
 日期：2026-09-08。工单 [#11](https://github.com/mahiro424/AgentX/issues/11)，分支 `m1-06`；依赖 #9 / PR #17、#10 / PR #18 均已合入 `m1`。本记录是切片内增量，不代表 M1-06 或完整 M1 已完成，不作为关闭工单的凭据。
 
+最新进展（2026-09-09）：只读异常核对、真实 Flash 生命周期和崩溃验收已通过，指定运行包已更新；当前等待本切片最终 PR/CI 集成。以下增量按发生顺序保留，当时的「未完成」不覆盖后文新证据。
+
 ## 已接通的本地控制链路
 
 - 主窗口关闭只隐藏到托盘；保留同一窗口、Main 实例与草稿。托盘包含打开与退出；再次启动通过单实例事件恢复原窗口。托盘创建失败明确失败，不把用户留在不可恢复的隐藏窗口。
@@ -88,3 +90,52 @@
 - `53-runtime-lease-docs.log`：32 份文档、185 个仓库内引用、72 个 M1 场景，错误 0；`git diff --check` 通过。
 
 本增量仍无模型调用。完整 #11 的 PR/合并及最终 M1 验收留待剩余范围通过，不提前关闭。
+
+## 状态核对与真实生命周期验收
+
+进程归属增量的远程 CI `34236905747` 已成功，提交 `97d35b89918322b3b13b9b3a42418adf02ed2b4d`，178/178。
+
+新增 `getReconciliation({taskId})` 有限 IPC，沿用主 frame/原窗口/参数数量校验。核对产品发送意图、完整 Windows 进程身份和固定版本公开历史，不调用模型、不解密 Key、不重发、不自动清锁。没有精确意图/turn 绑定时只展示历史，不认领最后一轮；根进程消失、PID 复用或查询失败均不等于后台清空。读取期间记录发生变化明确提示过期，失败保留上一份事实和草稿。
+
+| 行为 | RED | GREEN / 回归 |
+| --- | --- | --- |
+| 异常核对接缝、实际进程与精确历史归属 | `56-reconciliation-red.log`：服务入口不存在 | `58-reconciliation-green.log` 1/1；`65-reconciliation-regression.log` 8/8 |
+| 核对 UI 与失败保留草稿 | `59-reconciliation-ui-red.log`：没有诊断入口 | `62-reconciliation-ui-green.log` 1/1 |
+| 重开后发现终态任务的未释放引擎 | `63-pending-discovery-red.log`：没有待核对任务标识 | `64-pending-discovery-green.log` 1/1 |
+| 孤立准备记录在其他会话中仍有诊断入口 | `66-orphan-ui-red.log`：诊断按钮数为 0 | `69-reconciliation-green.log` 5/5，包含实际 Electron 的 PID 复用说明 |
+| 晚到响应不串任务、归属错误/过期事实可见 | 已有防旧响应行为，新增回归，不伪记新 RED | `71-diagnostic-ui-regression.log` 3/3 |
+
+`57-reconciliation-green.log` 的首次 UUID 正则遗漏一段失败保留，修正输入校验后 `58` 通过。独立只读审查覆盖后端归属/只读/回收接缝与 UI/IPC；指出孤立 lease 在其他会话没有入口，按 `66 → 69` 修复。没有引入取消请求框架、自动恢复或未知进程清理。
+
+### 固定引擎的真实公开历史
+
+`70-real-history-reconciliation.log` 使用既有合成项目真实历史、固定 `0.153.4` 二进制；实际 RPC 只有 `initialize` 和 `thread/read`，读到已完成的 3 轮，精确绑定轮次 completed，产品任务/意图/归属语义记录前后不变。凭据读取 0、模型调用 0；不是 PassThrough 或历史响应替身。此历史随后通过本次真实续轮增加到 4 轮，不能将三轮断言当作永远不变的 fixture。
+
+### 真实 Flash 正常停止后退出
+
+`74-live-lifecycle.log` 与[脱敏汇总](m1-06/live-lifecycle-summary.json)：在既有合成项目/同一 thread 新增一轮，执行每 500 ms 写心跳的有限时探针。切设置、浏览新会话草稿、最小化、关闭到托盘、真实第二次启动恢复原窗口、取消真正退出，各步骤均保持原 task/thread/turn 和完整引擎身份，心跳从 6 增至 24。
+
+真实点击「停止后退出」后：轮次 interrupted、发送意图 settled、根引擎与探针进程均不再存在、心跳在 25 停止且后续未增加、lease 的根关闭及释放时间落盘；应用退出码 0。冷读取公开历史得到第 4 轮 interrupted，原 5 个源文件/测试/人工文件摘要不变。
+
+恢复窗口使用实际第二实例启动，未伪造 `second-instance` 事件；不把此结果描述为自动点击系统托盘图标。原始记录的 `mainPid` 字段实际上取自 Playwright 启动包装进程，因此不用于证明 Main 身份；测试另通过 Main 中的 `process.pid` 与窗口 ID 前后比较，执行引擎身份则由产品校验并落盘。原始字段不静默改写。
+
+### 真实崩溃后只读核对、不重复执行
+
+`78-real-crash-reconciliation.log` 与同一脱敏汇总：全新隔离数据/项目，重新经产品入口系统加密凭据、实际拉取模型目录，仅选择 Flash。唯一真实轮次启动探针后，仅对本脚本拥有的 Main 注入异常退出，再打开真实交付目录中的应用。
+
+- 产品任务投影 reconciling；真实诊断得到根进程 notFound、公开精确轮次 interrupted、后台 unverified，未自动清锁。
+- UI 诊断可读、草稿保留、发送按钮禁用；有限 startExecution 也拒绝新发送。
+- 两次核对前后产品意图及 lease 未改变；只保存一个发送意图，探针启动文件最终仍为一行 `START`，没有第二次副作用。
+- 故障实例仅用测试专属异常退出清理，探针按自身至多 30 秒期限结束；这不是产品正常回收通过的证据，正常回收由上一段单独证明。
+
+失败保留：`76-real-crash-reconciliation.log` 的首次准备尝试把既有验收密文复制到新数据根，解密失败，`sent:false`、任务 0、lease 0，没有模型轮次。没有降低系统加密或推断复制一定可移植；改为原隔离档案受控读取、内存传递到新档案的正常 Key 保存入口，再实际拉取目录。明文未入文件、报告或日志。清理前核对了该失败测试的父子链、映像和创建时间，只结束其尚未派发工作的 Main，未操作用户应用。
+
+### 界面、构建与全量回归
+
+- 实际截图：[浅色诊断](m1-06/reconciliation-light.png)、[深色详情](m1-06/reconciliation-details-dark.png)、[紧凑详情](m1-06/reconciliation-details-compact.png)、[真实退出确认](m1-06/live-exit-confirm.png)、[真实崩溃核对](m1-06/real-crash-reconciliation.png)。前 3 张为合成未知记录，后 2 张为上述实际 Flash 运行，不混称。
+- `73-reconciliation-qa.log`：1280×820 深浅色、960×640 浅色，没有横向页面溢出；诊断位于既有记录滚动区，长详情可滚动，输入区仍可见；键盘能展开/重新核对。实际系统 DPI/中文 IME 沿用用户已确认记录，不重复冒称人工检查。
+- `67-reconciliation-typecheck.log` 通过，`68-reconciliation-package.log` 独立真实包成功；`72-reconciliation-full.log` **184/184**，298006.6878 ms，自动测试无 Key/模型调用，无人工介入清理。
+- 用户原应用退出后再次检查目标占用，`75-reconciliation-delivery-package.log` 成功更新 `E:\AgentX\desktop\out\AgentX-win32-x64`；没有结束用户应用。`77-package-code-identity.log` 比对 ASAR 中 Main/Renderer/Preload/CSS/HTML 五项内容，全部与全量测试包相同。
+- 指定包 `resources/app.asar` SHA-256：`dc0481130016ead74e624d7805d9ee4185acb81bae560ae88550ba31cf409531`。真实崩溃验收使用的正是此指定目录包。
+
+当前只剩本切片最终审查、PR/CI 集成与整套 M1 交付归档；没有新增安装器、更新器、通用恢复/清锁或上游补丁。现场新增 2 个 Flash 顶层轮次，首次密文准备失败未发送轮次；各失败和成功均保留。

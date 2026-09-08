@@ -1,0 +1,78 @@
+{
+  "engine": "codex 0.153.4",
+  "model": "deepseek-v4-flash",
+  "source": "真实打包 Electron + 原生 Main 和固定引擎；仅崩溃步骤故障注入",
+  "normalExit": {
+    "taskId": "e661e32b-aa89-4636-aa8f-cee34b8dfe35",
+    "threadId": "01a08049-85b9-7221-858b-d344b8fef800",
+    "turnId": "01a081b4-4188-7623-b951-6c9985d46f09",
+    "observations": [
+      {
+        "label": "切到设置",
+        "state": "running",
+        "tick": 6
+      },
+      {
+        "label": "浏览新会话草稿",
+        "state": "running",
+        "tick": 10
+      },
+      {
+        "label": "最小化",
+        "state": "running",
+        "tick": 14
+      },
+      {
+        "label": "关闭到托盘",
+        "state": "running",
+        "tick": 17
+      },
+      {
+        "label": "再次启动恢复原窗口",
+        "state": "running",
+        "tick": 21
+      },
+      {
+        "label": "取消真正退出",
+        "state": "running",
+        "tick": 24
+      }
+    ],
+    "restore": "真实第二实例启动后恢复原窗口，未模拟 second-instance 事件；非系统托盘鼠标点击",
+    "exitCode": 0,
+    "finalState": "interrupted",
+    "finalTick": 25,
+    "rootProcessGone": true,
+    "probeProcessGone": true,
+    "heartbeatStopped": true,
+    "releasedAt": "2026-09-08T15:48:05.000Z",
+    "historyTurnCount": 4,
+    "preservedFiles": [
+      "acceptance.test.cjs",
+      "approval.cjs",
+      "human-notes.txt",
+      "math.cjs",
+      "text.cjs"
+    ],
+    "passed": true
+  },
+  "crash": {
+    "taskId": "03c6bc61-8fb1-4060-b38e-3becee93f9de",
+    "threadId": "01a081bd-dc56-7621-87ab-49107fb7cf2b",
+    "turnId": "01a081bd-dd1b-79e1-90e1-e07dfd672f71",
+    "diagnostic": {
+      "processState": "notFound",
+      "background": "unverified",
+      "matchedTurnStatus": "interrupted",
+      "historyError": null,
+      "historyTurnCount": 1
+    },
+    "draftPreserved": true,
+    "startCount": 1,
+    "intentCount": 1,
+    "probeEnded": true,
+    "cleanup": "仅清理脚本拥有的故障 Main；探针至多按自身 30 秒期限结束，不计为产品正常回收",
+    "passed": true
+  },
+  "limits": "自动测试无密钥；现场仅 Flash。首次新目录密文复制准备失败且未发送模型任务，保留日志，不降级明文。"
+}
