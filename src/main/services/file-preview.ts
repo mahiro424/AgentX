@@ -35,10 +35,10 @@ export async function readFilePreview(root: string, input: unknown): Promise<Fil
   if (!draft.materials.some(item => item.materialId === source.materialId) && !prior) throw new Error('材料未关联当前草稿或会话，不能读取');
   const observed = await new MaterialService(root).preview(source.materialId);
   const { material } = observed;
-  const unsupported = material.status === 'ready' && material.kind !== 'text';
+  const unsupported = material.status === 'ready' && !['text', 'spreadsheet'].includes(material.kind);
   return { source, name: material.name, path: material.path, status: unsupported ? 'unsupported' : material.status,
-    message: unsupported ? '此对象不提供文本预览；目录引用不会自动展开' : material.status === 'ready' ? '只读文本；内容不执行脚本' : material.message,
-    version: material.version, currentVersion: observed.currentVersion, text: observed.text, observedAt: observed.observedAt,
+    message: unsupported ? '此对象不提供文本预览；目录引用不会自动展开' : material.status === 'ready' ? '只读内容；不执行脚本或重算公式' : material.message,
+    version: material.version, currentVersion: observed.currentVersion, text: observed.text, spreadsheet: observed.spreadsheet, observedAt: observed.observedAt,
     taskId: draft.taskId, turnId: prior?.acknowledged ? prior.turnId : null, operationId: prior?.operationId ?? null };
 }
 
@@ -47,7 +47,7 @@ export async function openFilePreview(root: string, input: unknown, host: { open
     !('action' in input) || !['open', 'reveal'].includes(input.action as string)) throw new Error('文件打开请求无效');
   const value = await readFilePreview(root, input.source);
   if (input.action === 'open' && value.status !== 'ready') throw new Error(`${value.message}；未打开文件，请先核对版本`);
-  if (input.action === 'open' && !['.txt', '.md', '.markdown'].includes(path.extname(value.path).toLowerCase())) throw new Error('本阶段仅开放文本文件的本机打开');
+  if (input.action === 'open' && !['.txt', '.md', '.markdown', '.csv', '.xlsx'].includes(path.extname(value.path).toLowerCase())) throw new Error('本阶段仅开放已核验文本或表格文件的本机打开');
   try {
     const stat = await fs.lstat(value.path);
     if ((!stat.isFile() && !stat.isDirectory()) || stat.isSymbolicLink() || await fs.realpath(value.path) !== value.path) throw new Error('changed-path');

@@ -5,6 +5,39 @@ const path = require('node:path');
 const os = require('node:os');
 require('ts-node').register({ transpileOnly: true });
 
+test('表格材料预览：授权引用解析实际工作表，变化不冒充原版本，工具未接通前不放行发送', async () => {
+  const { Workbook } = require('exceljs');
+  const { MaterialService } = require('../../src/main/services/materials.ts');
+  const { saveDraft } = require('../../src/main/storage/drafts.ts');
+  const { readFilePreview } = require('../../src/main/services/file-preview.ts');
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-sheet-preview-')));
+  const filename = path.join(root, '订单.xlsx'), book = new Workbook();
+  book.addWorksheet('明细').addRow(['青禾', 120]); book.addWorksheet('汇总').getCell('A1').value = { formula: '1+2' };
+  await fs.writeFile(filename, Buffer.from(await book.xlsx.writeBuffer()));
+  const service = new MaterialService(root), [material] = await service.register([filename]);
+  assert.equal(material.kind, 'spreadsheet'); assert.equal(material.status, 'ready');
+  const scope = { projectId: null, taskId: null }, source = { kind: 'material', scope, materialId: material.materialId };
+  await assert.rejects(readFilePreview(root, source), /关联/);
+  saveDraft(root, { ...scope, text: '查看订单', expectedRevision: 0, materialIds: [material.materialId] });
+  const value = await readFilePreview(root, source);
+  assert.equal(value.status, 'ready'); assert.equal(value.text, null);
+  assert.equal(value.spreadsheet.sheets[0].rows[0][0].value, '青禾');
+  assert.deepEqual(value.spreadsheet.sheets.map(sheet => sheet.name), ['明细', '汇总']);
+  const opened = [];
+  const host = { openPath: async filename => { opened.push(filename); return ''; }, showItemInFolder: () => {} };
+  const { openFilePreview } = require('../../src/main/services/file-preview.ts');
+  assert.equal((await openFilePreview(root, { source, action: 'open' }, host)).status, 'requested');
+  assert.deepEqual(opened, [filename]);
+  await assert.rejects(service.requireReady([material.materialId]), /表格.*发送.*尚未开放/);
+  book.getWorksheet('明细').getCell('A1').value = '新内容';
+  await fs.writeFile(filename, Buffer.from(await book.xlsx.writeBuffer()));
+  const changed = await readFilePreview(root, source);
+  assert.equal(changed.status, 'changed'); assert.equal(changed.spreadsheet, null);
+  assert.equal(changed.version.sha256, material.version.sha256);
+  await assert.rejects(openFilePreview(root, { source, action: 'open' }, host), /变化/);
+  assert.equal(opened.length, 1);
+});
+
 test('材料文本预览：只读取当前草稿授权 ID，显示真实 UTF-8 字节和版本，变化不冒充原版本', async () => {
   const { MaterialService } = require('../../src/main/services/materials.ts');
   const { saveDraft } = require('../../src/main/storage/drafts.ts');

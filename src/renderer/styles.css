@@ -206,6 +206,24 @@ h1 { margin: 0; font-size: 24px; line-height: 32px; font-weight: 600; }
 .preview-meta p { margin: 8px 0; }
 .preview-content { flex: 1; min-height: 0; overflow: auto; padding: 12px 20px 24px; }
 .preview-content pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: 'Cascadia Code', Consolas, monospace; line-height: 1.7; }
+.preview-spreadsheet { padding: 0; overflow: hidden; }
+.spreadsheet-view { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.sheet-note { margin: 0; padding: 8px 16px; font-size: 12px; color: var(--semantic-info); background: var(--interaction-hover); flex: none; }
+.sheet-cell-info { display: flex; gap: 12px; padding: 8px 16px; flex: none; max-height: 84px; overflow: auto; border-block: 1px solid var(--border-default); }
+.sheet-cell-info > span { color: var(--text-secondary); white-space: nowrap; font-size: 12px; }
+.sheet-cell-info code { font: 13px/20px 'Cascadia Code', Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.sheet-scroll { flex: 1; min-height: 0; overflow: auto; }
+.sheet-table { border-collapse: separate; border-spacing: 0; min-width: 100%; table-layout: fixed; }
+.sheet-table th, .sheet-table td { min-width: 112px; max-width: 240px; height: 34px; padding: 6px 10px; border-right: 1px solid var(--border-default); border-bottom: 1px solid var(--border-default); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sheet-table th { background: var(--surface-subtle); color: var(--text-secondary); font-weight: 400; text-align: center; }
+.sheet-table thead th { position: sticky; top: 0; z-index: 1; }
+.sheet-table tr > th:first-child { min-width: 42px; width: 42px; position: sticky; left: 0; }
+.sheet-table thead th:first-child { z-index: 2; }
+.sheet-table td[data-selected='true'] { outline: 1px solid var(--focus-ring); outline-offset: -1px; background: var(--interaction-hover); }
+.sheet-cache-label { font-size: 12px; color: var(--text-muted); }
+.sheet-tabs { display: flex; flex: none; min-height: 42px; overflow-x: auto; border-top: 1px solid var(--border-default); padding: 0 12px; }
+.sheet-tabs button { flex: none; border: 0; border-bottom: 2px solid transparent; background: transparent; padding: 8px 16px; }
+.sheet-tabs button[aria-selected='true'] { border-bottom-color: var(--focus-ring); color: var(--semantic-info); }
 .text-button { min-height: 32px; padding: 0 var(--space-tight); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--semantic-info); }
 .text-button:hover:not(:disabled) { background: var(--interaction-hover); }
 .text-button:active:not(:disabled) { background: var(--interaction-selected); }

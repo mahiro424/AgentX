@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DraftScope } from '../../shared/contracts/drafts';
 import type { FilePreview, FilePreviewSource } from '../../shared/contracts/file-preview';
+import type { Spreadsheet } from '../../shared/contracts/spreadsheet';
+import { SpreadsheetView } from './SpreadsheetView';
 
 interface PreviewTab { key: string; scopeKey: string; source: FilePreviewSource; name: string; trigger: HTMLButtonElement }
 const scopeKey = (scope: DraftScope) => JSON.stringify([scope.projectId, scope.taskId]);
@@ -39,7 +41,7 @@ export function useFilePreviews(scope: DraftScope) {
   };
 }
 
-interface PreviewCache { value?: FilePreview; text: string | null; zoom: number; scroll: number; loading: boolean; error: string; action: string; actionBusy: boolean }
+interface PreviewCache { value?: FilePreview; text: string | null; spreadsheet?: Spreadsheet; sheet?: string; zoom: number; scroll: number; loading: boolean; error: string; action: string; actionBusy: boolean }
 export function FilePreviewPanel({ tabs, active, visible, running, select, close }: ReturnType<typeof useFilePreviews> & { visible: boolean; running: boolean }) {
   const cache = useRef(new Map<string, PreviewCache>()), sequence = useRef(0);
   const [revision, redraw] = useState(0), [expanded, setExpanded] = useState(false), [width, setWidth] = useState(440);
@@ -58,6 +60,7 @@ export function FilePreviewPanel({ tabs, active, visible, running, select, close
       if (current !== sequence.current) return;
       target.value = value;
       if (value.status === 'ready' && value.text !== null) target.text = value.text;
+      if (value.status === 'ready' && value.spreadsheet) target.spreadsheet = value.spreadsheet;
     } catch (cause) { if (current === sequence.current) target.error = cause instanceof Error ? cause.message : '预览读取失败'; }
     finally { if (current === sequence.current) { target.loading = false; redraw(previous => previous + 1); } }
   }
@@ -75,7 +78,7 @@ export function FilePreviewPanel({ tabs, active, visible, running, select, close
   useEffect(() => { if (active && content.current) content.current.scrollTop = entry(active.key).scroll; }, [active?.key, revision, visible]);
   if (!active) return null;
   const current = entry(active.key), value = current.value;
-  const stale = current.text !== null && (!!current.error || value?.status !== 'ready');
+  const stale = (current.text !== null || !!current.spreadsheet) && (!!current.error || value?.status !== 'ready');
   async function fileAction(action: 'open' | 'reveal' | 'copy') {
     if (!active || current.actionBusy) return;
     current.actionBusy = true; current.action = ''; redraw(previous => previous + 1);
@@ -124,12 +127,14 @@ export function FilePreviewPanel({ tabs, active, visible, running, select, close
       {current.loading && <p className="muted" role="status">正在核验实际文件…</p>}
       {current.error && <p className="error-message" role="alert">{current.error}</p>}
       {!current.error && value && value.status !== 'ready' && <p className="error-message" role="alert">{value.message}</p>}
-      {stale && <p role="note">保留上次成功读取的文本，不代表当前文件；{active.source.kind === 'result' ? '请重新检查文件改动，再打开新版本。' : '请核对材料后重新打开。'}</p>}
+      {stale && <p role="note">保留上次成功读取的{current.spreadsheet ? '表格' : '文本'}，不代表当前文件；{active.source.kind === 'result' ? '请重新检查文件改动，再打开新版本。' : '请核对材料后重新打开。'}</p>}
       {current.action && <p role="status">{current.action}</p>}
     </div>
-    <div id="preview-content" role="tabpanel" aria-label={active.name} className="preview-content" tabIndex={0} ref={content}
+    <div id="preview-content" role="tabpanel" aria-label={active.name} className={`preview-content${current.spreadsheet ? ' preview-spreadsheet' : ''}`} tabIndex={0} ref={content}
       onScroll={event => { current.scroll = event.currentTarget.scrollTop; }}>
       {current.text !== null && <pre style={{ fontSize: `${14 * current.zoom / 100}px` }}>{current.text || '（空文本文件）'}</pre>}
+      {current.spreadsheet && <SpreadsheetView key={active.key} value={current.spreadsheet} zoom={current.zoom} selectedSheet={current.sheet ?? ''}
+        selectSheet={name => { current.sheet = name; redraw(previous => previous + 1); }} />}
     </div>
   </section>;
 }
