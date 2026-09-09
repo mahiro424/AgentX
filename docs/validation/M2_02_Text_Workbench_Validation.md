@@ -1,8 +1,8 @@
-# M2-02 文本材料工作台验证记录（进行中）
+# M2-02 文本材料工作台验证记录
 
 - 工单：#22；父 PRD：#1。
 - 分支：`m2-02`，目标分支仅 `m2`；不得合入 `master`。
-- 本记录对应 `M2-AC-02` 的连续状态切片，不代表整个工单已经完成。
+- 本记录对应 `M2-AC-02` 的连续状态切片；前四节保留各检查点当时的完成边界，最终状态见文末。
 
 ## 第一功能：不关联项目也能执行
 
@@ -152,10 +152,38 @@
 - 当前 `app.asar` SHA-256：`c9f2023be8622e3121f748e8b9080b5938f31c350948dab87bca0a56316c6a16`。构建过程中一次独立包较慢但最终成功，未放宽构建或测试权限。
 - 现场图：[初稿预览](images/m2-02/artifact-light-1280.png)、[续改预览](images/m2-02/artifact-revised-dark-1280.png)。后续标签修正与真实重开复核：[浅色](images/m2-02/artifact-reviewed-light-1280.png)、[深色](images/m2-02/artifact-reviewed-dark-1280.png)、[浅色紧凑](images/m2-02/artifact-reviewed-light-960.png)、[深色紧凑](images/m2-02/artifact-reviewed-dark-960.png)。系统 DPI、物理 IME 和外部默认应用的实际阅读状态不冒称本次重新验收。
 
-## 未完成状态与下一步
+## 最终工单核对
 
-`independentDraft`、材料选择/保存/核验、图片发送阻断、绑定材料版本的发送与同会话续轮已有本地功能证据；`generatingText`、`validatingText`、产物预览后的 `revision` 已有两轮 Flash 现场证据。`opened`、`textPreview`、`unavailablePreview` 已覆盖材料与产物，错误路径和未决状态仍须在最终工单矩阵逐项汇总，不用本次两个顺利轮次冒称所有场景已测。
+### 状态覆盖
 
-下一步在同一个 #22 / `m2-02` 内完成最新提交的完整回归、逐状态最终审查与 CI，满足门禁后再合入 m2 并关闭 #22。当前不提前关闭工单或开始依赖它的表格、文档、恢复切片；完整 V1 父 PRD 保持开放。
+下列状态均来自 PRD `UI-M2-WORKBENCH` 的 M2-02 行。测试名是可搜索定位词，不把合成协议故障或系统边界替身当作真实模型副作用验收。
+
+| 状态 | 行为与证据 |
+| --- | --- |
+| independentDraft | `independent-task` 单元/桌面：首发前不创建任务，Main 分配唯一目录；`independent-migration`：v12/v13→v14 保留既有数据、失败回滚。非项目两轮 Flash 与正常重开现场通过。 |
+| choosing | `materials` 桌面“唯一加号经原生选择保存”“材料拖放与失效”：选择取消、真实 File 经 Preload、同入口去重；取消不增加记录。 |
+| reading | `materials` 单元有界核验与桌面材料状态：路径、大小、格式、版本可核对；只显示可读取，不伪称 Agent 已读。 |
+| ready | `materials` 单元 CAS / 桌面重开恢复与移除：草稿和材料一起保存，引用不串会话，移除不删原件。 |
+| failedMaterial | `materials` 单元冻结版本与桌面外改/缺失：保留原引用、错误和草稿，重查采用新 ID；失败不调用模型。 |
+| blockedImage | 图片粘贴单元及真实 Main 保存/桌面禁发：PNG/JPEG 原字节保留，不改投其他模型；不代表物理剪贴板或图像理解验收。 |
+| sending | `material-execution` 首发/steer/续轮绑定 operation 与材料修订；`execution-submission`、`workbench-submit`、`workbench-execution` 的防重、未决、补充失败/保留草稿回归通过。 |
+| generatingText | 本文两轮 Flash 完整工作链路：事实仅来自两份合成材料，真实读取并产出 `note.txt`，原件和人工文件不变。 |
+| validatingText | 独立文件读取、哈希和命令退出码；`results` 桌面的 failed/interrupted `partialResult` 使用真实文件及合成终态，明确只展示已知变化、不代表完成或撤销。新两轮现场没有刻意触发审批/停止；审批与停止执行证据沿用 M1，当前完整回归继续覆盖其接口。 |
+| opened | `file-preview` 标签、切换、首发迁移、关闭与焦点；`results` 产物来源、版本和差异保留；关闭不删文件或停止任务。 |
+| textPreview | `file-preview` / `artifact-preview` / `results`：真实字节、只读、缩放、脚本文字不执行；真实 Electron 原生打开与定位 smoke 返回 requested，文件哈希不变。系统回执不等于外部阅读完成。 |
+| unavailablePreview | 材料与产物测试覆盖变化、缺失、损坏元数据、junction 替换、晚回淘汰、系统打开失败；保留旧文本时显式标陈旧，不返回替代文件内容。 |
+| revision | Flash 同 task/thread 新 turn、不同结果 ID；正常重开材料/公开历史/产物恢复；旧引用仍绑定旧指纹。运行中预览明确提示文件可能继续变化。 |
+| compact | 四张最终重开图已逐张检查；既有紧凑抽屉、深浅色、缩放与焦点测试通过。`workbench-submit` / `workbench-continue` 的 `isComposing` Enter 保护、Ctrl+Enter 换行回归通过；不是新一轮物理 IME / 系统 DPI 验收。 |
+
+### 最终回归与独立审查
+
+- 代码检查点 `ecc4354` 本地全量 **264/264**，0 失败/取消/跳过，耗时 243.2 秒；[同提交 Windows push CI](https://github.com/mahiro424/AgentX/actions/runs/34351975199) 也是 **264/264**，包含实际打包。文档/规格变异门禁通过。
+- 同提交 [Windows PR CI](https://github.com/mahiro424/AgentX/actions/runs/34351979488) 首次 **263/264**：既有固定进程配置测试的系统身份查询返回错误码“未知”，耗时约 11 秒。相关查询、引擎启动和该测试在本切片无改动；本地定向握手/身份核验 **5/5**。超时是与现象一致的推断，原日志不足以确认系统根因；保留首次失败并原样复跑，不放宽 10 秒身份查询限制或移除断言。复跑/最新提交结果以 PR 检查为准。
+- 两份独立静态审查分别覆盖材料/迁移/执行关联，以及预览/产物授权/异步状态，未确证 P1/P2。主审逐点复核；关于缺少 IME 的线索不成立：Renderer 直接检查 `event.nativeEvent.isComposing`，首次发送/续轮测试已有相应断言。没有为未证实问题增加无关代码。
+- 原生打开 smoke 未替换 Electron `shell`，只打开本次合成 `note.txt` 并请求资源管理器定位，没有新增模型调用、修改文件或结束外部窗口。此前打开失败/版本阻断测试继续保留。
+
+### 集成与边界
+
+本切片功能与状态证据已汇总；须等最新 PR 门禁通过，再合入 `m2`、关闭 #22、开始依赖它的 #23。不动 `master`，完整 V1 父 PRD 保持开放。回退采用单独 revert 保留历史；数据回退须退出应用并保留当前库与产物，只在需要时核对迁移前备份，不把旧二进制直接指向 schema 14 当成安全回滚。
 
 原始日志位于本机 `.local-validation/m2-02`，最新真实产物现场位于系统临时目录的 `agentx-artifact-flash-CCYJgx`；不上传缓存、运行目录或凭据。采用图与全局设计不变，未重做系统 DPI 或人工中文输入法专项验收。
