@@ -12,6 +12,8 @@ async function query(pid,mode){
 (async()=>{
  if(!process.argv.includes('--codex')){for(const mode of['inherited','explicit-module','clean-module-path'])await query(process.pid,mode);return;}
  require('ts-node').register({transpileOnly:true});await require('./prepare-codex.cjs').prepareCodex();
+ const packageRoot=path.resolve('.cache/diagnostic-package');await fs.cp(path.resolve('.cache/engine'),path.join(packageRoot,'resources/engine'),{recursive:true});
+ const {spawn}=require('node:child_process');await new Promise((resolve,reject)=>{const child=spawn(process.execPath,['--test','tests/unit/codex-handshake.test.cjs'],{windowsHide:true,env:{...process.env,AGENTX_TEST_PACKAGE_DIR:packageRoot},stdio:'inherit'});child.once('error',reject);child.once('close',code=>{console.log(JSON.stringify({mode:'isolated-original-test',exitCode:code}));resolve();});});
  const root=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'agentx-cim-diagnostic-')));
  const {prepareCodexConfiguration,verifyExecutionConfiguration}=require('../src/main/runtime/codex/configuration.ts');
  const prepared=await prepareCodexConfiguration(root,{modelId:'deepseek-v4-flash',apiKey:'synthetic-diagnostic-key'});
