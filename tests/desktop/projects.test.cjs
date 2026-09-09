@@ -15,7 +15,7 @@ test('M1-03 empty：从公开接口读取空项目和会话，不创建假记录
   t.after(() => app.close());
   assert.deepEqual(await page.evaluate(() => window.agentx.getWorkspace()), { projects: [], tasks: [] });
   await page.getByText('尚无项目或会话', { exact: true }).waitFor();
-  await page.getByText('选择本地项目后，在工作台写下目标。', { exact: true }).waitFor();
+  await page.getByText('在工作台写下目标，也可以先选择本地项目。', { exact: true }).waitFor();
   assert.equal(await page.getByText('最近', { exact: true }).count(), 0);
 });
 
@@ -308,7 +308,7 @@ test('迁移失败：旧版模型数据先留一致性快照，失败整体回�
     finally { db.close(); }
   });
   assert.deepEqual(result, { version: 3, hasProjects: false, catalog: '["synthetic-model"]' });
-  assert.ok((await fs.readdir(data)).some(name => /^agentx\.before-v12\..+\.db$/.test(name)));
+  assert.ok((await fs.readdir(data)).some(name => /^agentx\.before-v13\..+\.db$/.test(name)));
 });
 
 test('损坏记录：项目字段与会话目录关联损坏时报错，不隐藏或错误归组', { timeout: 30000 }, async t => {
@@ -481,7 +481,7 @@ test('迁移成功：M1-02 模型记录与保存保护标记保留，备份能�
   assert.deepEqual(readCatalog(data), { modelIds: ['synthetic-model'], fetchedAt: '2026-09-01T00:00:00.000Z', configRevision: 7 });
   assert.equal(readModelTests(data)[0].error, '合成历史错误');
   assert.match(readKeySaveFailure(data, 'synthetic-reference'), /不会使用旧 Key/);
-  const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v12\..+\.db$/.test(name));
+  const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v13\..+\.db$/.test(name));
   assert.equal(backups.length, 1);
   const original = await app.evaluate((_electron, filename) => {
     const { DatabaseSync } = process.getBuiltinModule('node:sqlite');

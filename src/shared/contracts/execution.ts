@@ -11,7 +11,7 @@ export const EXECUTION_CHANGED_CHANNEL = 'agentx:execution-changed';
 export interface ExecutionStart {
   taskId: string;
   operationId: string;
-  projectId: string;
+  projectId: string | null;
   text: string;
   modelId: string;
   configRevision: number;

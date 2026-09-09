@@ -118,8 +118,8 @@ function App() {
     : reconciliationTaskIds.length ? '存在引擎或后台回收待核对，不会发送新任务。'
     : busyTask ? '有活动或待核对任务，不能开始另一个任务。'
     : workspace.selectedTaskId && (!selectedTask?.threadId || !canInspect) ? '本会话没有已确认结束的轮次，请先核对状态。'
-    : !selectedProject ? '请先选择本地项目。'
-    : selectedProject.directoryState !== 'available' ? '工作目录不可用，不能开始执行。'
+    : workspace.selectedProjectId !== null && !selectedProject ? '所选项目已不可用，请重新选择。'
+    : selectedProject && selectedProject.directoryState !== 'available' ? '工作目录不可用，不能开始执行。'
     : !modelConfiguration ? '正在读取可用模型配置。'
     : modelConfiguration.saving || modelConfiguration.keySaveError ? '密钥尚未保存成功，请检查模型设置。'
     : !modelConfiguration.enabled || !modelConfiguration.hasCredential ? '请先启用模型连接并保存 API Key。'
@@ -154,9 +154,9 @@ function App() {
   useEffect(() => { draftRevision.current++; }, [workspace.selectedProjectId, workspace.selectedTaskId]);
 
   async function sendTurn() {
-    if (blockedReason || submitLock.current || !selectedProject || !modelConfiguration) return;
+    if (blockedReason || submitLock.current || !modelConfiguration) return;
     const previousTaskId = workspace.selectedTaskId;
-    const request = { taskId: selectedTask?.taskId ?? crypto.randomUUID(), operationId: crypto.randomUUID(), projectId: selectedProject.projectId,
+    const request = { taskId: selectedTask?.taskId ?? crypto.randomUUID(), operationId: crypto.randomUUID(), projectId: workspace.selectedProjectId,
       modelId: FLASH_MODEL_ID, configRevision: modelConfiguration.configRevision, text: draft };
     const revision = ++draftRevision.current, generation = selection.current.generation;
     const stillHere = () => selection.current.projectId === request.projectId && selection.current.taskId === previousTaskId && selection.current.generation === generation;
@@ -378,7 +378,7 @@ function App() {
           : <p role="status" className="muted">{draftState.loading ? '正在读取草稿…' : draftState.saving ? '正在保存草稿…' : '草稿已保存'}</p>}
         {steerNotice?.taskId === workspace.selectedTaskId && steerNotice.turnId === currentExecution?.task?.turnId && <p role="status" className="muted">{steerNotice.message}</p>}
         <p id="send-unavailable" role="note" className={selectedProject?.directoryState === 'unavailable' ? 'error-message' : 'muted'}>{selectedProject?.directoryState === 'unavailable'
-          ? `工作目录不可用：${selectedProject.directoryError}。不能在此目录开始新执行，原会话关联仍保留。` : currentExecution && !canInspect ? '本轮沿用已提交的模型与权限。停止请求需等待引擎确认，已发生的修改不会自动撤销。' : blockedReason || (selectedTask ? '将在原会话中开始新一轮，保留先前历史；这不是旧进程的断点续跑。' : '将使用选定项目与 Flash 开始工作。')}</p>
+          ? `工作目录不可用：${selectedProject.directoryError}。不能在此目录开始新执行，原会话关联仍保留。` : currentExecution && !canInspect ? '本轮沿用已提交的模型与权限。停止请求需等待引擎确认，已发生的修改不会自动撤销。' : blockedReason || (selectedTask ? '将在原会话中开始新一轮，保留先前历史；这不是旧进程的断点续跑。' : selectedProject ? '将使用选定项目与 Flash 开始工作。' : '发送后建立独立工作目录，使用 Flash 开始工作。')}</p>
         {busyTask && busyTask.taskId !== workspace.selectedTaskId && <button className="secondary-button" onClick={() => {
           workspace.setSelectedProjectId(busyTask.projectId); workspace.setSelectedTaskId(busyTask.taskId);
         }}>查看活动或待核对任务</button>}

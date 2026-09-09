@@ -48,7 +48,7 @@ test('v8 升级保留任务与意图的精确关联，旧版本快照可读取�
   assert.deepEqual(readRuntimeLeases(root), []);
   assert.deepEqual(readWorkspace(root).tasks, [{ ...task, archivedAt: null, pinnedAt: null, organizationRevision: 0 }]);
   assert.deepEqual(readSubmissionIntent(root, intent.operationId), { ...intent, taskId: task.taskId, phase: 'prepared' });
-  const backups = (await fs.readdir(root)).filter(name => /^agentx\.before-v12\..+\.db$/.test(name));
+  const backups = (await fs.readdir(root)).filter(name => /^agentx\.before-v13\..+\.db$/.test(name));
   assert.equal(backups.length, 1);
   const before = new DatabaseSync(path.join(root, backups[0]), { readOnly: true });
   try {

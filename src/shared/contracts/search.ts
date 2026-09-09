@@ -21,7 +21,7 @@ export interface SearchSnippet { text: string; ranges: [number, number][] }
 export interface TaskSearchResult {
   taskId: string;
   title: string;
-  projectId: string;
+  projectId: string | null;
   projectName: string;
   lastActivityAt: string;
   archived: boolean;

@@ -25,6 +25,7 @@ export function ProjectSidebar({ workspace, openWorkbench }: { workspace: Return
   }, [menu]);
   const pinned = snapshot?.tasks.filter(task => task.pinnedAt !== null && task.archivedAt === null)
     .sort((a, b) => b.pinnedAt!.localeCompare(a.pinnedAt!) || a.taskId.localeCompare(b.taskId)) ?? [];
+  const recent = snapshot?.tasks.filter(task => task.projectId === null && task.pinnedAt === null && task.archivedAt === null) ?? [];
   return <div className="project-navigation">
     {!!pinned.length && <section aria-label="置顶会话"><div className="project-group-heading">置顶</div>
       <ul className="session-list pinned-list">{pinned.map(task => <SessionRow key={task.taskId} task={task} workspace={workspace} openWorkbench={openWorkbench} />)}</ul>
@@ -41,7 +42,7 @@ export function ProjectSidebar({ workspace, openWorkbench }: { workspace: Return
         const task = snapshot.tasks.find(task => task.taskId === workspace.lastArchived!.taskId)!;
         void workspace.archiveTask(task, event.currentTarget);
       }}>撤销归档</button>}
-    {snapshot && !snapshot.projects.length && !snapshot.tasks.length && <div className="sidebar-empty"><p>尚无项目或会话</p><span>选择本地项目后，在工作台写下目标。</span></div>}
+    {snapshot && !snapshot.projects.length && !snapshot.tasks.length && <div className="sidebar-empty"><p>尚无项目或会话</p><span>在工作台写下目标，也可以先选择本地项目。</span></div>}
     {snapshot?.projects.map(project => <section key={project.projectId} aria-label={`项目：${project.displayName}`}><div className="project-row" data-menu-open={menu?.project.projectId === project.projectId} data-unavailable={project.directoryState === 'unavailable'}>
       <button className="project-collapse icon-button" aria-label={`${collapsed.has(project.projectId) ? '展开' : '收起'}项目：${project.displayName}`} aria-expanded={!collapsed.has(project.projectId)}
         onClick={() => setCollapsed(previous => { const next = new Set(previous); if (next.has(project.projectId)) next.delete(project.projectId); else next.add(project.projectId); return next; })}>{collapsed.has(project.projectId) ? '›' : '⌄'}</button>
@@ -58,6 +59,9 @@ export function ProjectSidebar({ workspace, openWorkbench }: { workspace: Return
           <SessionRow key={task.taskId} task={task} workspace={workspace} openWorkbench={openWorkbench} />)}
       </ul>}
     </section>)}
+    {!!recent.length && <section aria-label="最近会话"><div className="project-group-heading">最近</div>
+      <ul className="session-list">{recent.map(task => <SessionRow key={task.taskId} task={task} workspace={workspace} openWorkbench={openWorkbench} />)}</ul>
+    </section>}
     {menu && createPortal(<div ref={menuElement} className="project-menu" role="menu" aria-label="项目操作" style={{ left: menu.x, top: menu.y }} onKeyDown={event => {
       if (event.key === 'Escape' || event.key === 'Tab') { event.preventDefault(); setMenu(null); menu.trigger.focus(); }
       if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) { event.preventDefault(); menuElement.current?.querySelector<HTMLButtonElement>('button')?.focus(); }

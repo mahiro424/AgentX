@@ -72,14 +72,14 @@ test('error：读取失败可重试，草稿不因错误或重试丢失', { time
   assert.equal(await draft.inputValue(), '错误时也要保留这份草稿');
 });
 
-test('disabled：未选项目有草稿仍不能发送，显示原因且不暴露未接入入口', { timeout: 20000 }, async t => {
+test('disabled：未配置模型有草稿仍不能发送，显示原因且不暴露未接入入口', { timeout: 20000 }, async t => {
   const { app, page } = await launch();
   t.after(() => app.close());
   const draft = page.getByRole('textbox', { name: '任务要求' });
   await draft.fill('请修复项目');
   await draft.press('Control+Enter');
   assert.equal(await page.getByRole('button', { name: '发送', exact: true }).isDisabled(), true);
-  await page.getByRole('note').filter({ hasText: '请先选择本地项目' }).waitFor({ timeout: 2000 });
+  await page.getByRole('note').filter({ hasText: '请先启用模型连接并保存 API Key' }).waitFor({ timeout: 2000 });
   for (const name of ['项目管理', '全部任务', '添加附件', '完全访问']) {
     assert.equal(await page.getByRole('button', { name, exact: true }).count(), 0);
   }

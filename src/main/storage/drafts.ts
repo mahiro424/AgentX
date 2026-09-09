@@ -7,14 +7,13 @@ import path from 'node:path';
 function scope(value: unknown, fields: number): DraftScope {
   const validId = (id: unknown) => id === null || (typeof id === 'string' && id.length > 0 && id.length <= 128 && !/[\u0000-\u001f\u007f]/u.test(id));
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== fields ||
-    !('projectId' in value) || !('taskId' in value) || !validId(value.projectId) || !validId(value.taskId) ||
-    (value.taskId !== null && value.projectId === null)) throw new Error('草稿归属无效');
+    !('projectId' in value) || !('taskId' in value) || !validId(value.projectId) || !validId(value.taskId)) throw new Error('草稿归属无效');
   return { projectId: value.projectId as string | null, taskId: value.taskId as string | null };
 }
 
 function key(database: DatabaseSync, value: DraftScope): string {
   if (value.projectId !== null && !database.prepare('SELECT 1 FROM projects WHERE project_id=?').get(value.projectId)) throw new Error('invalid-draft-project');
-  if (value.taskId !== null && !database.prepare('SELECT 1 FROM tasks WHERE task_id=? AND project_id=?').get(value.taskId, value.projectId)) throw new Error('invalid-draft-task');
+  if (value.taskId !== null && !database.prepare('SELECT 1 FROM tasks WHERE task_id=? AND project_id IS ?').get(value.taskId, value.projectId)) throw new Error('invalid-draft-task');
   return JSON.stringify([value.projectId, value.taskId]);
 }
 
@@ -28,7 +27,7 @@ function read(database: DatabaseSync, value: DraftScope, scopeKey: string): Draf
 
 export function readDraft(root: string, input: unknown): DraftRecord {
   const value = scope(input, 2);
-  if (!existsSync(path.join(root, 'agentx.db')) && value.projectId === null) return { ...value, text: '', revision: 0 };
+  if (!existsSync(path.join(root, 'agentx.db')) && value.projectId === null && value.taskId === null) return { ...value, text: '', revision: 0 };
   return withDatabase(root, database => read(database, value, key(database, value)));
 }
 

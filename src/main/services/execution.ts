@@ -1,6 +1,7 @@
 import type { TaskSummary } from '../../shared/contracts/projects';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { readWorkspace } from '../storage/projects';
 import { captureWorkspace, captureGitState } from './workspace-results';
 import { saveWorkspaceBaseline } from '../storage/results';
@@ -284,10 +285,10 @@ export class ExecutionService {
     const uuid = (value: unknown): value is string => typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== (continuing ? 8 : 6) ||
         !('taskId' in input) || !uuid(input.taskId) || !('operationId' in input) || !uuid(input.operationId) ||
-        !('projectId' in input) || !uuid(input.projectId) || !('modelId' in input) || input.modelId !== FLASH_MODEL_ID ||
+        !('projectId' in input) || (input.projectId !== null && !uuid(input.projectId)) || !('modelId' in input) || input.modelId !== FLASH_MODEL_ID ||
         !('configRevision' in input) || !Number.isSafeInteger(input.configRevision) || Number(input.configRevision) < 0 ||
         !('text' in input) || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 200000 || input.text.includes('\0')) {
-      throw new Error('发送请求无效；本阶段仅支持 Flash、已关联项目和纯文本');
+      throw new Error('发送请求无效；本阶段仅支持 Flash 和纯文本');
     }
     const request = { taskId: input.taskId, operationId: input.operationId, projectId: input.projectId,
       text: input.text, configRevision: Number(input.configRevision) };
@@ -302,7 +303,7 @@ export class ExecutionService {
     }
     if ((!continuing && workspace.tasks.some(task => task.taskId === request.taskId)) || readSubmissionIntent(this.root, request.operationId)) throw new Error('任务或发送操作已使用，请读取原记录，不能重复发送');
     const project = workspace.projects.find(value => value.projectId === request.projectId);
-    if (!project) throw new Error('项目未关联，未开始执行');
+    if (request.projectId !== null && !project) throw new Error('项目未关联，未开始执行');
     this.preparing = true;
     this.preparationDone = new Promise(resolve => { this.finishPreparation = resolve; });
     this.error = null;
@@ -311,14 +312,15 @@ export class ExecutionService {
     try {
       const snapshot = await this.models.captureExecution(request.configRevision);
       if (this.closing) throw new Error('应用正在退出，未开始执行');
-      // 保存的路径必须仍指向用户原先关联的普通目录，不接受 Renderer 指定任意 cwd。
-      if (await fs.realpath(project.directory) !== project.directory || !(await fs.stat(project.directory)).isDirectory()) throw new Error('项目目录已变化，未开始执行');
-      const directory = await fs.opendir(project.directory); await directory.close();
+      const workingDirectory = project?.directory ?? await independentDirectory(this.root, request.taskId, !!previous);
+      // 保存的路径必须仍指向原目录，不接受 Renderer 指定任意 cwd。
+      if (await fs.realpath(workingDirectory) !== workingDirectory || !(await fs.stat(workingDirectory)).isDirectory()) throw new Error('工作目录已变化，未开始执行');
+      const directory = await fs.opendir(workingDirectory); await directory.close();
       await Promise.allSettled(this.historyReads);
       await this.releaseCompletedRuntime();
       const configuration = await prepareCodexConfiguration(this.root, snapshot);
       const now = new Date().toISOString();
-      const task: TaskSummary = previous ?? { taskId: request.taskId, projectId: project.projectId, directory: project.directory,
+      const task: TaskSummary = previous ?? { taskId: request.taskId, projectId: request.projectId, directory: workingDirectory,
         title: request.text.replace(/[\u0000-\u001f\u007f]/gu, ' ').trim().slice(0, 120),
         lastActivityAt: now, observedAt: now, executionState: 'submitting', threadId: null, turnId: null };
       const intent = { operationId: request.operationId, text: request.text, modelId: snapshot.modelId,
@@ -326,7 +328,7 @@ export class ExecutionService {
       const session = new FirstTurnSession(this.root, task, intent);
       this.current = { taskId: task.taskId, operationId: intent.operationId, session };
       this.runtime = await openExecutionCodex({ resourcesDirectory: this.resourcesDirectory,
-        workingDirectory: project.directory, ...configuration }, {
+        workingDirectory, ...configuration }, {
         notification: message => { session.notification(message); this.changed(); },
         request: message => { session.request(message); this.changed(); },
         disconnected: error => {
@@ -341,8 +343,8 @@ export class ExecutionService {
         operationId: intent.operationId, projectId: task.projectId, identity: this.runtime.identity, createdAt: new Date().toISOString() });
       this.runtimeLeaseId = leaseId;
       if (this.closing) throw new Error('应用正在退出，未发送任务');
-      const baseline = await captureWorkspace(project.directory);
-      const git = await captureGitState(project.directory);
+      const baseline = await captureWorkspace(workingDirectory);
+      const git = await captureGitState(workingDirectory);
       await saveWorkspaceBaseline(this.root, { taskId: task.taskId, operationId: intent.operationId }, baseline, git);
       if (this.closing) throw new Error('应用正在退出，未发送任务');
       markRuntimeWorkStarted(this.root, leaseId, this.instanceId);
@@ -359,6 +361,18 @@ export class ExecutionService {
       throw error;
     } finally { this.preparing = false; this.finishPreparation?.(); this.finishPreparation = null; this.changed(); }
   }
+}
+
+async function independentDirectory(root: string, taskId: string, existing: boolean): Promise<string> {
+  const parent = path.join(root, 'workspaces'), directory = path.join(parent, taskId);
+  if (!existing) await fs.mkdir(parent, { recursive: true });
+  if ((await fs.lstat(parent)).isSymbolicLink() || await fs.realpath(parent) !== parent) throw new Error('独立工作目录来源已变化，未开始执行');
+  if (!existing) {
+    // 准备失败可能留下尚未使用的目录；再次准备也必须核验，不删除其内容。
+    try { await fs.mkdir(directory); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+  }
+  if ((await fs.lstat(directory)).isSymbolicLink() || await fs.realpath(directory) !== directory) throw new Error('独立任务目录已变化，未开始执行');
+  return directory;
 }
 
 // Main 内部协调接缝。调用者负责准备冻结配置及专属已握手连接，并接收该连接的事件。

@@ -69,7 +69,7 @@ test('v7 迁移：原会话、意图和一致性备份保留，缺失的轮次�
   assert.deepEqual(readWorkspace(value.root), before);
   assert.equal(readSubmissionIntent(value.root, value.operationId).phase, 'settled');
   await assert.rejects(readTaskResults(value.root, value.request), /没有已确认的基线关联/);
-  const backups = (await fs.readdir(value.root)).filter(name => /^agentx\.before-v12\..+\.db$/.test(name));
+  const backups = (await fs.readdir(value.root)).filter(name => /^agentx\.before-v13\..+\.db$/.test(name));
   assert.equal(backups.length, 1);
   const previous = new DatabaseSync(path.join(value.root, backups[0]), { readOnly: true });
   try {

@@ -35,7 +35,7 @@ export const EXECUTION_STATES = ['idle', 'submitting', 'running', 'waitingApprov
 export type ExecutionState = typeof EXECUTION_STATES[number];
 export interface TaskSummary {
   taskId: string;
-  projectId: string;
+  projectId: string | null;
   title: string;
   directory: string;
   lastActivityAt: string;

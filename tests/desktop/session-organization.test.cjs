@@ -214,7 +214,7 @@ test('v9 会话升级：打包应用先备份旧结构，原会话保留，首�
     ({ app, page } = await launch(data));
     await page.getByRole('button', { name: before.title, exact: true }).waitFor();
     assert.deepEqual((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0], before);
-    const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v12\..+\.db$/.test(name));
+    const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v13\..+\.db$/.test(name));
     assert.equal(backups.length, 1);
     const backup = new DatabaseSync(path.join(data, backups[0]), { readOnly: true });
     try {
@@ -315,7 +315,7 @@ test('v10 会话升级：先备份已改名的组织修订，置顶后不重置�
     ({ app, page } = await launch(data));
     await page.getByRole('button', { name: before.title, exact: true }).waitFor();
     assert.deepEqual((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0], before);
-    const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v12\..+\.db$/.test(name));
+    const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v13\..+\.db$/.test(name));
     assert.equal(backups.length, 1);
     const original = new DatabaseSync(path.join(data, backups[0]), { readOnly: true });
     try {
@@ -343,7 +343,7 @@ test('v11 升级与归档重开：备份原置顶和组织修订，历史关联�
     try { old.exec('ALTER TABLE tasks DROP COLUMN archived_at; PRAGMA user_version=11'); } finally { old.close(); }
     ({ app, page } = await launch(data));
     assert.deepEqual((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0], before);
-    const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v12\..+\.db$/.test(name));
+    const backups = (await fs.readdir(data)).filter(name => /^agentx\.before-v13\..+\.db$/.test(name));
     assert.equal(backups.length, 1);
     const original = new DatabaseSync(path.join(data, backups[0]), { readOnly: true });
     try {

@@ -42,7 +42,7 @@ export function useWorkspace() {
       await window.agentx.setTaskPinned({ operationId: crypto.randomUUID(), taskId: task.taskId,
         expectedRevision: task.organizationRevision, pinned: task.pinnedAt === null });
       await load();
-      setNotice(task.pinnedAt === null ? '已置顶会话' : '已取消置顶，会话仍在原项目');
+      setNotice(task.pinnedAt === null ? '已置顶会话' : task.projectId === null ? '已取消置顶，会话回到最近分组' : '已取消置顶，会话仍在原项目');
     } catch (cause) { setTaskActionError(cause instanceof Error ? cause.message : '会话置顶操作失败，请重读列表后重试'); }
     finally {
       organizing.current = false; setOrganizingTaskId(null);

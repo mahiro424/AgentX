@@ -39,7 +39,7 @@ test('草稿迁移：v6 一致性备份保留发送意图，新表创建后原�
   try { previous.exec('ALTER TABLE tasks DROP COLUMN archived_at; ALTER TABLE tasks DROP COLUMN pinned_at; ALTER TABLE tasks DROP COLUMN organization_revision; DROP TABLE runtime_leases; DROP TABLE drafts; DROP INDEX execution_intents_turn; ALTER TABLE execution_intents DROP COLUMN turn_id; PRAGMA user_version=6'); } finally { previous.close(); }
   assert.equal(readDraft(root, { projectId: project.projectId, taskId: null }).revision, 0);
   assert.deepEqual(readWorkspace(root).projects, [project]);
-  const backups = (await fs.readdir(root)).filter(name => /^agentx\.before-v12\..+\.db$/.test(name));
+  const backups = (await fs.readdir(root)).filter(name => /^agentx\.before-v13\..+\.db$/.test(name));
   assert.equal(backups.length, 1);
   const saved = new DatabaseSync(path.join(root, backups[0]), { readOnly: true });
   try {
