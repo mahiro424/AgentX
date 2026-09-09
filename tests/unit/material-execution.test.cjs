@@ -7,7 +7,7 @@ const { randomUUID } = require('node:crypto');
 const { PassThrough } = require('node:stream');
 require('ts-node').register({ transpileOnly: true });
 
-for (const extension of ['txt', 'csv']) test(`材料执行 ${extension}：首发续轮补充使用同一公开文本输入，保留版本与变化阻断`, async t => {
+for (const extension of ['txt', 'csv', 'docx', 'pdf']) test(`材料执行 ${extension}：首发续轮补充使用同一公开文本输入，保留版本与变化阻断`, async t => {
   const boundary = require('../../src/main/runtime/codex/process.ts');
   const { CodexTransport } = require('../../src/main/runtime/codex/transport.ts');
   const { ExecutionService } = require('../../src/main/services/execution.ts');
@@ -15,7 +15,16 @@ for (const extension of ['txt', 'csv']) test(`材料执行 ${extension}：首发
   const { saveDraft, readDraft } = require('../../src/main/storage/drafts.ts');
   const { readInputMaterials } = require('../../src/main/storage/materials.ts');
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-material-execution-')));
-  const filename = path.join(root, `交付.${extension}`); await fs.writeFile(filename, '指定事实：预算 120 元');
+  const filename = path.join(root, `交付.${extension}`);
+  const writeMaterial = async text => {
+    if (extension === 'docx') {
+      const { Document, Paragraph, Packer } = require('docx');
+      await fs.writeFile(filename, await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph(text)] }] })));
+    } else if (extension === 'pdf') {
+      await fs.writeFile(filename, require('../helpers/pdf-fixture.cjs').pdfBytes([text.includes('120') ? 'Budget 120' : 'Changed budget']));
+    } else await fs.writeFile(filename, text);
+  };
+  await writeMaterial('指定事实：预算 120 元');
   const [material] = await new MaterialService(root).register([filename]);
   const scope = { projectId: null, taskId: null }, text = '读取材料并生成新文件';
   const draft = saveDraft(root, { ...scope, text, materialIds: [material.materialId], expectedRevision: 0 });
@@ -58,6 +67,14 @@ for (const extension of ['txt', 'csv']) test(`材料执行 ${extension}：首发
     assert.match(sent[0].text, /office-cli/); assert.match(sent[0].text, /ELECTRON_RUN_AS_NODE/);
     assert.match(sent[0].text, /公式未重算/); assert.match(sent[0].text, /Out-String/);
   }
+  if (extension === 'pdf') {
+    assert.match(sent[0].text, /office-cli/); assert.match(sent[0].text, /pages/);
+    assert.match(sent[0].text, /不生成 PDF/);
+  }
+  if (extension === 'docx') {
+    assert.match(sent[0].text, /office-cli/); assert.match(sent[0].text, /paragraphs/);
+    assert.match(sent[0].text, /新文件\.docx/); assert.match(sent[0].text, /重新读取/);
+  }
   saveDraft(root, { projectId: null, taskId, text: '补充核对材料', materialIds: [material.materialId], expectedRevision: 0 });
   await service.steer({ taskId, threadId: first.threadId, turnId: first.turnId, operationId: randomUUID(), text: '补充核对材料',
     materials: { revision: 1, ids: [material.materialId] } });
@@ -69,7 +86,7 @@ for (const extension of ['txt', 'csv']) test(`材料执行 ${extension}：首发
   assert.equal(savedInputs[1].kind, 'steer'); assert.equal(savedInputs[1].acknowledged, true);
   assert.deepEqual(savedInputs[0].materials, [material]);
   const nextDraft = saveDraft(root, { projectId: null, taskId, text: '继续核对', materialIds: [material.materialId], expectedRevision: 1 });
-  await fs.writeFile(filename, '外部修改');
+  await writeMaterial('外部修改');
   const next = { ...request, text: '继续核对', operationId: randomUUID(), threadId: first.threadId, expectedTurnId: first.turnId,
     materials: { revision: nextDraft.revision, ids: [material.materialId] } };
   await assert.rejects(service.continue(next), /变化/);

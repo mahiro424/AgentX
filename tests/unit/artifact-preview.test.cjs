@@ -26,6 +26,43 @@ async function fixture() {
   return { root, directory, taskId, operationId, request: { taskId, turnId: 'artifact-turn' } };
 }
 
+test('PDF 产物：实际文件指纹建立来源引用，损坏或变更保留旧版本，不从模型路径补造', async () => {
+  const { readTaskResults } = require('../../src/main/services/task-results.ts');
+  const { readFilePreview } = require('../../src/main/services/file-preview.ts');
+  const value = await fixture(), filename = path.join(value.directory, '附件副本.pdf'), bytes = require('../helpers/pdf-fixture.cjs').pdfBytes();
+  await fs.writeFile(filename, bytes);
+  const result = await readTaskResults(value.root, value.request);
+  assert.equal(result.artifacts.length, 1);
+  const artifact = result.artifacts[0], source = { kind: 'result', taskId: value.taskId, resultId: artifact.resultId };
+  const preview = await readFilePreview(value.root, source);
+  assert.equal(preview.status, 'ready'); assert.equal(preview.turnId, value.request.turnId);
+  assert.equal(preview.pdf.pages.length, 2); assert.deepEqual(Buffer.from(preview.pdfData, 'base64'), bytes);
+  await fs.writeFile(filename, '未完成 PDF');
+  const broken = await readFilePreview(value.root, source);
+  assert.equal(broken.status, 'unreadable'); assert.equal(broken.pdfData, null);
+  assert.equal(broken.version.sha256, artifact.sha256);
+});
+
+test('文档产物：真实 DOCX 绑定来源轮次并预览，损坏的新字节不覆盖已登记版本', async () => {
+  const { Document, Paragraph, Packer } = require('docx');
+  const { readTaskResults } = require('../../src/main/services/task-results.ts');
+  const { readFilePreview } = require('../../src/main/services/file-preview.ts');
+  const value = await fixture(), filename = path.join(value.directory, '报告.docx');
+  await fs.writeFile(filename, await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('收入 95，周五交付')] }] })));
+  const result = await readTaskResults(value.root, value.request);
+  assert.equal(result.artifacts.length, 1);
+  const artifact = result.artifacts[0], source = { kind: 'result', taskId: value.taskId, resultId: artifact.resultId };
+  const preview = await readFilePreview(value.root, source);
+  assert.equal(preview.status, 'ready'); assert.equal(preview.turnId, value.request.turnId);
+  assert.deepEqual(preview.document.paragraphs, ['收入 95，周五交付']);
+  assert.equal(preview.version.sha256, artifact.sha256);
+  await fs.writeFile(filename, '未完成的文档');
+  const broken = await readFilePreview(value.root, source);
+  assert.equal(broken.status, 'unreadable'); assert.equal(broken.document, null);
+  assert.equal(broken.version.sha256, artifact.sha256);
+  assert.notEqual(broken.currentVersion.sha256, artifact.sha256);
+});
+
 test('真实产物：检查实际新增文件才建立稳定结果 ID，按任务和来源轮次预览，不接受任意路径', async () => {
   const { readTaskResults } = require('../../src/main/services/task-results.ts');
   const { readFilePreview } = require('../../src/main/services/file-preview.ts');
@@ -156,4 +193,14 @@ test('表格检查范围：1 至 8 MiB 的表格保留版本与预览，普通�
   await saveWorkspaceBaseline(value.root, binding, await captureWorkspace(value.directory), await captureGitState(value.directory));
   const saved = await readWorkspaceBaseline(value.root, binding);
   assert.equal(saved.snapshot.files[0].sha256, artifact.sha256); assert.equal(saved.snapshot.files[0].text, null);
+});
+
+test('图片产物：实际文件建立版本引用，缺失保持来源而不返回缓存字节', async()=>{
+ const {readTaskResults}=require('../../src/main/services/task-results.ts'),{readFilePreview}=require('../../src/main/services/file-preview.ts');
+ const value=await fixture(),filename=path.join(value.directory,'结果.png');
+ const bytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jEAAAAABJRU5ErkJggg==','base64');await fs.writeFile(filename,bytes);
+ const result=await readTaskResults(value.root,value.request);assert.equal(result.artifacts.length,1);
+ const artifact=result.artifacts[0],source={kind:'result',taskId:value.taskId,resultId:artifact.resultId};
+ const preview=await readFilePreview(value.root,source);assert.equal(preview.status,'ready');assert.equal(preview.turnId,value.request.turnId);assert.deepEqual(Buffer.from(preview.image.data,'base64'),bytes);
+ await fs.unlink(filename);const missing=await readFilePreview(value.root,source);assert.equal(missing.status,'missing');assert.equal(missing.image,null);assert.equal(missing.version.sha256,artifact.sha256);
 });

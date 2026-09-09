@@ -36,7 +36,7 @@ export function MaterialsList({ materials, checking, saving, actions, remove, op
   actions: ReturnType<typeof useMaterialActions>; remove: (id: string) => void; open: (item: MaterialRecord, trigger: HTMLButtonElement) => void }) {
   return <>
     {materials.length > 0 && <ul className="material-list" aria-label="本轮材料">{materials.map(item => <li key={item.materialId} className="material-chip" data-failed={item.status !== 'ready'}>
-      <span className="material-kind" aria-hidden="true">{item.kind === 'directory' ? '目录' : item.kind === 'image' ? '图片' : item.kind === 'spreadsheet' ? (/\.csv$/i.test(item.name) ? 'CSV' : 'XLSX') : item.kind === 'text' ? (/\.txt$/i.test(item.name) ? 'TXT' : 'MD') : '文件'}</span>
+      <span className="material-kind" aria-hidden="true">{item.kind === 'directory' ? '目录' : item.kind === 'image' ? '图片' : item.kind === 'spreadsheet' ? (/\.csv$/i.test(item.name) ? 'CSV' : 'XLSX') : item.kind === 'document' ? 'DOCX' : item.kind === 'pdf' ? 'PDF' : item.kind === 'text' ? (/\.txt$/i.test(item.name) ? 'TXT' : 'MD') : '文件'}</span>
       <span className="material-description" title={item.path}><button className="material-name" disabled={saving} aria-label={`预览材料：${item.name}`}
         onClick={event => open(item, event.currentTarget)}>{item.name}</button><span>{checking ? '正在核验…' : item.message}</span></span>
       {item.status !== 'ready' && <button className="text-button" disabled={actions.busy || checking} aria-label={`重查材料：${item.name}`} onClick={() => void actions.refresh(item.materialId)}>重查</button>}

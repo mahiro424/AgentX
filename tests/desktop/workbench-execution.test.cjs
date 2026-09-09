@@ -151,6 +151,8 @@ test('running：真实工作台显示执行项，输入主按钮切换为停止�
   assert.equal(await page.getByRole('textbox', { name: '任务要求' }).inputValue(), '保留这段补充草稿\n');
   assert.equal(await page.getByRole('button', { name: '停止', exact: true }).isEnabled(), true);
   await page.getByRole('textbox', { name: '任务要求' }).fill('保留这段补充草稿');
+  // 键盘发送不会像点击按钮那样等待可用；先满足产品的草稿修订落盘前置条件。
+  await page.getByRole('status').filter({ hasText: '草稿已保存' }).waitFor();
   await page.getByRole('textbox', { name: '任务要求' }).press('Enter');
   await page.getByRole('alert').filter({ hasText: '合成补充失败' }).waitFor();
   assert.equal(await page.getByRole('textbox', { name: '任务要求' }).inputValue(), '保留这段补充草稿');

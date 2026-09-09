@@ -15,7 +15,7 @@ export function readMaterialsIn(database: DatabaseSync, input: unknown): Materia
     if (!row || typeof row.record !== 'string' || row.record.length > 32768) throw new Error('invalid-material-reference');
     const record = JSON.parse(row.record) as MaterialRecord;
     if (record.materialId !== id || typeof record.path !== 'string' || typeof record.name !== 'string' ||
-      !['text', 'directory', 'image', 'spreadsheet', 'unsupported'].includes(record.kind) ||
+      !['text', 'directory', 'image', 'spreadsheet', 'document', 'pdf', 'unsupported'].includes(record.kind) ||
       !['ready', 'changed', 'missing', 'unreadable', 'unsupported', 'blockedImage'].includes(record.status) ||
       typeof record.message !== 'string' || (record.version !== null && (typeof record.version.identity !== 'string' ||
         !Number.isSafeInteger(record.version.size) || record.version.size < 0 ||

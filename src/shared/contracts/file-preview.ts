@@ -1,12 +1,15 @@
 import type { DraftScope } from './drafts';
 import type { MaterialStatus, MaterialVersion } from './materials';
 import type { Spreadsheet } from './spreadsheet';
+import type { OfficeDocument } from './document';
+import type { PdfDocument } from './pdf';
 
 export const FILE_PREVIEW_READ_CHANNEL = 'agentx:file-preview-read';
 export const FILE_PREVIEW_OPEN_CHANNEL = 'agentx:file-preview-open';
 export interface MaterialPreviewSource { kind: 'material'; scope: DraftScope; materialId: string }
 export interface ResultPreviewSource { kind: 'result'; taskId: string; resultId: string }
 export type FilePreviewSource = MaterialPreviewSource | ResultPreviewSource;
+export interface ImagePreview { mime: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'; data: string; width: number; height: number }
 export interface FilePreview {
   source: FilePreviewSource;
   name: string;
@@ -17,6 +20,10 @@ export interface FilePreview {
   currentVersion: Pick<MaterialVersion, 'size' | 'sha256'> | null;
   text: string | null;
   spreadsheet?: Spreadsheet | null;
+  document?: OfficeDocument | null;
+  pdf?: PdfDocument | null;
+  pdfData?: string | null;
+  image?: ImagePreview | null;
   observedAt: string;
   taskId: string | null;
   turnId: string | null;

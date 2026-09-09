@@ -1,0 +1,45 @@
+{
+  "geometry": [
+    {
+      "theme": "light",
+      "width": 1280,
+      "height": 820,
+      "canvas": {
+        "width": 279,
+        "height": 362
+      },
+      "contained": true
+    },
+    {
+      "theme": "light",
+      "width": 960,
+      "height": 640,
+      "canvas": {
+        "width": 264,
+        "height": 342
+      },
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "height": 820,
+      "canvas": {
+        "width": 279,
+        "height": 362
+      },
+      "contained": true
+    },
+    {
+      "theme": "dark",
+      "width": 960,
+      "height": 640,
+      "canvas": {
+        "width": 264,
+        "height": 342
+      },
+      "contained": true
+    }
+  ],
+  "modelCalls": 0
+}

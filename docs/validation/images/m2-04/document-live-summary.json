@@ -1,0 +1,51 @@
+{
+  "passed": true,
+  "submitted": 2,
+  "model": "deepseek-v4-flash",
+  "taskId": "de5cba39-83f9-4b20-b525-a0c966142eb1",
+  "threadId": "01a0873d-0b4d-7700-bc03-af82942e5c50",
+  "turns": [
+    "01a0873d-0b83-7f31-b559-9d651d44d057",
+    "01a0873e-0176-7e02-b4d3-56ee2c200766"
+  ],
+  "artifactIds": [
+    "d835dc0cd8d33092c1dd4d8f87af635ed76e66d4ec3a9480697c19be7223cb7c",
+    "f4f219d7990882ffb41a312223e56f07d5e48b040916e274a5bfcbe70a2c10af"
+  ],
+  "originalHashes": [
+    "6a97ed443290294f234a84b2385488783e40fa15cb689a36c5c6c695108cc98b",
+    "01428e8774d5a79de45007c3f352c959b98438e9c5e06ebb286bb8528e4e77f1"
+  ],
+  "originalsUnchanged": true,
+  "manualUnchanged": true,
+  "firstArtifactUnchanged": true,
+  "historyRecovered": true,
+  "previewRecovered": true,
+  "stop": {
+    "passed": true,
+    "submitted": 1,
+    "turnId": "01a08746-4044-78c0-8717-479d390b799e",
+    "ownedCliGone": true,
+    "postStopWrites": false,
+    "partialFiles": [
+      {
+        "name": "stop-1788975920056-0.docx",
+        "sha256": "ae023aeddb5df7b76673c0e02804712d994d4e431ac641a7420f9f5e7b59b1d3"
+      },
+      {
+        "name": "stop-1788975920056-1.docx",
+        "sha256": "2d13ebd83ceab123a32f3099e9c2e426ddbe0b1aae143aa2995bd48a3974f960"
+      },
+      {
+        "name": "stop-1788975920056-2.docx",
+        "sha256": "d1f17720f2f2b56fbba40a49dadef2d7da732a2c99b84d6d02ef4eda3e751b4f"
+      },
+      {
+        "name": "stop-1788975920056-3.docx",
+        "sha256": "3913b47cacde5352758efe220d560a4a638684d902a479e77adaeac1c22ece72"
+      }
+    ],
+    "originalsUnchanged": true
+  },
+  "earlierFailedFixtureTurns": 1
+}

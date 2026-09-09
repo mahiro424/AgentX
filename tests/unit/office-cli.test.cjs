@@ -13,6 +13,41 @@ const run = (cwd, args) => promisify(execFile)(process.execPath, ['--max-old-spa
   env: Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(SystemRoot|WINDIR|TEMP|TMP)$/i.test(key))),
 });
 
+test('PDF 命令：按实际哈希提取逐页文字，保留原件；不伪装 PDF 生成能力', async () => {
+  const { pdfBytes } = require('../helpers/pdf-fixture.cjs');
+  const cwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-pdf-cli-')));
+  const source = path.join(cwd, '原件.pdf'), bytes = pdfBytes(); await fs.writeFile(source, bytes);
+  const result = JSON.parse((await run(cwd, ['read', source, digest(bytes), '页内容.json'])).stdout);
+  const content = JSON.parse(await fs.readFile(result.path, 'utf8'));
+  assert.equal(content.format, 'pdf'); assert.equal(content.pages[1].text, 'Delivery Friday');
+  assert.equal(result.sourceSha256, digest(bytes)); assert.equal(content.pdfData, undefined);
+  await assert.rejects(run(cwd, ['read', source, '0'.repeat(64), '错误.json']), /版本.*变化/);
+  await assert.rejects(run(cwd, ['write', '页内容.json', '输出.pdf']), /格式|PDF|CSV.*XLSX/);
+  await assert.rejects(fs.access(path.join(cwd, '输出.pdf')), /ENOENT/);
+  assert.deepEqual(await fs.readFile(source), bytes);
+});
+
+test('文档命令：生成新的 DOCX 并按实际哈希回读段落，同名和错误哈希不改写文件', async () => {
+  const cwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-document-cli-')));
+  const paragraphs = ['青禾季度报告', '收入：95；交付：周五', '<script>只是文字</script>'];
+  await fs.writeFile(path.join(cwd, '内容.json'), JSON.stringify({ paragraphs }));
+  const result = JSON.parse((await run(cwd, ['write', '内容.json', '报告.docx'])).stdout);
+  const bytes = await fs.readFile(result.path);
+  assert.equal(result.sha256, digest(bytes)); assert.equal(result.validation, 'structure-only');
+  assert.equal(result.paragraphCount, 3); assert.equal(result.formulaStatus, undefined);
+  const JSZip = require('jszip'), zip = await JSZip.loadAsync(bytes);
+  const xml = await zip.file('word/document.xml').async('string');
+  assert.match(xml, /青禾季度报告/); assert.match(xml, /收入：95；交付：周五/); assert.match(xml, /&lt;script&gt;/);
+  const read = JSON.parse((await run(cwd, ['read', result.path, result.sha256, '回读.json'])).stdout);
+  assert.equal(read.sourceSha256, result.sha256);
+  const document = JSON.parse(await fs.readFile(read.path, 'utf8'));
+  assert.equal(document.format, 'docx'); assert.deepEqual(document.paragraphs, paragraphs);
+  await assert.rejects(run(cwd, ['write', '内容.json', '报告.docx']), error => error.code === 1 && /EEXIST/.test(error.stderr));
+  await assert.rejects(run(cwd, ['read', result.path, '0'.repeat(64), '错误.json']), /版本.*变化/);
+  assert.equal(digest(await fs.readFile(result.path)), digest(bytes));
+  await assert.rejects(fs.access(path.join(cwd, '错误.json')), /ENOENT/);
+});
+
 test('表格命令读取：核对材料哈希，生成含坐标类型与公式的结构化文件，不覆盖任何已有文件', async () => {
   const { Workbook } = require('exceljs');
   const cwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-office-cli-')));
@@ -71,6 +106,23 @@ test('Windows 文件锁：独占锁定材料时读取失败，退出后可重试
   const { spawn } = require('node:child_process'), { once } = require('node:events');
   const cwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-sheet-lock-')));
   const filename = path.join(cwd, '锁定.csv'), bytes = Buffer.from('姓名,金额\n小林,75'); await fs.writeFile(filename, bytes);
+  const script = `$f=[IO.File]::Open('${filename.replaceAll("'", "''")}',[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::None);[Console]::WriteLine('locked');[Console]::Out.Flush();Start-Sleep -Seconds 15;$f.Close()`;
+  const child = spawn(path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
+    ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const closed = once(child, 'close'); t.after(async () => { if (child.exitCode === null) child.kill(); await closed; });
+  const [ready] = await once(child.stdout, 'data'); assert.match(ready.toString(), /locked/);
+  await assert.rejects(run(cwd, ['read', filename, digest(bytes), '被锁定.json']), /EBUSY|EACCES|EPERM/);
+  assert.equal(await fs.access(path.join(cwd, '被锁定.json')).then(() => true, () => false), false);
+  child.kill(); await closed;
+  await run(cwd, ['read', filename, digest(bytes), '重试.json']);
+  assert.equal(digest(await fs.readFile(filename)), digest(bytes));
+});
+
+test('Windows 文档锁：独占 DOCX 不返回空文档或落输出，释放后真实读取', { timeout: 20000 }, async t => {
+  const { spawn } = require('node:child_process'), { once } = require('node:events');
+  const cwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-docx-lock-')));
+  const {Document,Paragraph,Packer}=require('docx');
+  const filename = path.join(cwd, '锁定.docx'), bytes = await Packer.toBuffer(new Document({sections:[{children:[new Paragraph('锁定材料的实际内容')]}]})); await fs.writeFile(filename, bytes);
   const script = `$f=[IO.File]::Open('${filename.replaceAll("'", "''")}',[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::None);[Console]::WriteLine('locked');[Console]::Out.Flush();Start-Sleep -Seconds 15;$f.Close()`;
   const child = spawn(path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
     ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });

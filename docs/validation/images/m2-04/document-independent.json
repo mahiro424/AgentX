@@ -1,0 +1,17 @@
+{
+  "passed": true,
+  "implementation": "Python stdlib zipfile + ElementTree + hashlib; 不使用产品解析器",
+  "model": "deepseek-v4-flash",
+  "topLevelTurns": 2,
+  "sameTaskAndThread": true,
+  "sourceHashesUnchanged": true,
+  "manualAndFirstVersionUnchanged": true,
+  "docxZipAndXml": true,
+  "pdfPage2Marker": true,
+  "outputHashes": {
+    "brief.docx": "53f66a999cf8cacf426f531e6088dc24c44a3ccb57525bd05d6c406ff3c7ff12",
+    "brief.txt": "108d7b41fcacda3413868a4fe347901aedc859ffb2d6276664948af6b8b5787b",
+    "brief-v2.docx": "218d7ad36a8a2dc60d0e1bfabca71eb0323fcd3b18d7b7f8d900b176e82b0d8c",
+    "brief-v2.txt": "449702ae26c2a15aa1fcfabc4312a67981f0691961135574fdd817d15e25f051"
+  }
+}

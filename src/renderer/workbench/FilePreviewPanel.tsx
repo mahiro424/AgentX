@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DraftScope } from '../../shared/contracts/drafts';
-import type { FilePreview, FilePreviewSource } from '../../shared/contracts/file-preview';
+import type { FilePreview, FilePreviewSource, ImagePreview } from '../../shared/contracts/file-preview';
 import type { Spreadsheet } from '../../shared/contracts/spreadsheet';
+import type { OfficeDocument } from '../../shared/contracts/document';
+import type { PdfDocument } from '../../shared/contracts/pdf';
 import { SpreadsheetView } from './SpreadsheetView';
+import { PdfView } from './PdfView';
 
 interface PreviewTab { key: string; scopeKey: string; source: FilePreviewSource; name: string; trigger: HTMLButtonElement }
 const scopeKey = (scope: DraftScope) => JSON.stringify([scope.projectId, scope.taskId]);
@@ -41,7 +44,7 @@ export function useFilePreviews(scope: DraftScope) {
   };
 }
 
-interface PreviewCache { value?: FilePreview; text: string | null; spreadsheet?: Spreadsheet; sheet?: string; zoom: number; scroll: number; loading: boolean; error: string; action: string; actionBusy: boolean }
+interface PreviewCache { value?: FilePreview; text: string | null; spreadsheet?: Spreadsheet; document?: OfficeDocument; pdf?: PdfDocument; pdfData?: string; image?: ImagePreview; imageError?: string; imageLoading?: boolean; page?: number; sheet?: string; zoom: number; scroll: number; loading: boolean; error: string; action: string; actionBusy: boolean }
 export function FilePreviewPanel({ tabs, active, visible, running, select, close }: ReturnType<typeof useFilePreviews> & { visible: boolean; running: boolean }) {
   const cache = useRef(new Map<string, PreviewCache>()), sequence = useRef(0);
   const [revision, redraw] = useState(0), [expanded, setExpanded] = useState(false), [width, setWidth] = useState(440);
@@ -61,6 +64,11 @@ export function FilePreviewPanel({ tabs, active, visible, running, select, close
       target.value = value;
       if (value.status === 'ready' && value.text !== null) target.text = value.text;
       if (value.status === 'ready' && value.spreadsheet) target.spreadsheet = value.spreadsheet;
+      if (value.status === 'ready' && value.document) target.document = value.document;
+      if (value.status === 'ready' && value.pdf && value.pdfData) { target.pdf = value.pdf; target.pdfData = value.pdfData; }
+      if (value.status === 'ready' && value.image && target.image?.data !== value.image.data) {
+        target.image = value.image; target.imageLoading = true; target.imageError = '';
+      }
     } catch (cause) { if (current === sequence.current) target.error = cause instanceof Error ? cause.message : '预览读取失败'; }
     finally { if (current === sequence.current) { target.loading = false; redraw(previous => previous + 1); } }
   }
@@ -78,7 +86,7 @@ export function FilePreviewPanel({ tabs, active, visible, running, select, close
   useEffect(() => { if (active && content.current) content.current.scrollTop = entry(active.key).scroll; }, [active?.key, revision, visible]);
   if (!active) return null;
   const current = entry(active.key), value = current.value;
-  const stale = (current.text !== null || !!current.spreadsheet) && (!!current.error || value?.status !== 'ready');
+  const stale = (current.text !== null || !!current.spreadsheet || !!current.document || !!current.pdf || !!current.image) && (!!current.error || value?.status !== 'ready');
   async function fileAction(action: 'open' | 'reveal' | 'copy') {
     if (!active || current.actionBusy) return;
     current.actionBusy = true; current.action = ''; redraw(previous => previous + 1);
@@ -114,7 +122,7 @@ export function FilePreviewPanel({ tabs, active, visible, running, select, close
         }}>×</button>
     </div>)}</div>
     <div className="preview-toolbar"><button className="text-button" disabled={current.loading} onClick={() => void load()} aria-label="重新核验预览">↻ 核验</button>
-      <button className="text-button" disabled={current.actionBusy || current.loading || !!current.error || value?.status !== 'ready'} onClick={() => void fileAction('open')}>本机打开</button>
+      <button className="text-button" disabled={current.actionBusy || current.loading || current.imageLoading || !!current.error || !!current.imageError || value?.status !== 'ready'} onClick={() => void fileAction('open')}>本机打开</button>
       <button className="text-button" disabled={current.actionBusy || !value || value.status === 'missing'} onClick={() => void fileAction('reveal')}>定位</button>
       <button className="text-button" disabled={current.actionBusy || !value} onClick={() => void fileAction('copy')}>复制路径</button>
       <div className="preview-zoom"><button className="icon-button" aria-label="缩小文字" disabled={current.zoom === 80} onClick={() => zoom(current.zoom - 10)}>−</button>
@@ -124,18 +132,32 @@ export function FilePreviewPanel({ tabs, active, visible, running, select, close
       <p className="muted">只读 · {active.name}</p>
       {value && <details><summary>文件来源与版本</summary><p>{value.path}</p><p>{value.turnId ? `${value.source.kind === 'result' ? '来源轮次' : '最近关联轮次'}：${value.turnId}` : '当前草稿材料，尚无已确认轮次'}<br />所属任务：{value.taskId ?? '当前草稿'}<br />SHA-256：{value.version?.sha256 ?? '无文本版本'}<br />核验时间：{new Date(value.observedAt).toLocaleString()}</p></details>}
       {running && <p role="note">任务仍在运行，文件可能继续变化。</p>}
-      {active.source.kind === 'result' && current.spreadsheet && <p role="note">可读取不等于已验证业务结果；中断或失败轮次的文件可能仅是部分产物，请独立核对。</p>}
+      {active.source.kind === 'result' && (current.spreadsheet || current.document || current.pdf || current.image) && <p role="note">可读取不等于已验证业务结果；中断或失败轮次的文件可能仅是部分产物，请独立核对。</p>}
+      {current.image && <p className="muted" role="note">仅本地预览 · {current.image.mime} · 原始尺寸 {current.image.width} × {current.image.height}；不代表模型已识图或可发送图片。</p>}
+      {current.imageError && <p className="error-message" role="alert">{current.imageError}</p>}
+      {current.imageLoading && <p className="muted" role="status">正在解码本地图片…</p>}
+      {current.document?.messages.map((message, index) => <p className="muted" role="note" key={index}>{message}</p>)}
+      {current.pdf?.messages.map((message, index) => <p className="muted" role="note" key={index}>{message}</p>)}
       {current.loading && <p className="muted" role="status">正在核验实际文件…</p>}
       {current.error && <p className="error-message" role="alert">{current.error}</p>}
       {!current.error && value && value.status !== 'ready' && <p className="error-message" role="alert">{value.message}</p>}
-      {stale && <p role="note">保留上次成功读取的{current.spreadsheet ? '表格' : '文本'}，不代表当前文件；{active.source.kind === 'result' ? '请重新检查文件改动，再打开新版本。' : '请核对材料后重新打开。'}</p>}
+      {stale && <p role="note">保留上次成功读取的{current.spreadsheet ? '表格' : current.document ? '文档' : current.pdf ? ' PDF' : current.image ? '图片' : '文本'}，不代表当前文件；{active.source.kind === 'result' ? '请重新检查文件改动，再打开新版本。' : '请核对材料后重新打开。'}</p>}
       {current.action && <p role="status">{current.action}</p>}
     </div>
     <div id="preview-content" role="tabpanel" aria-label={active.name} className={`preview-content${current.spreadsheet ? ' preview-spreadsheet' : ''}`} tabIndex={0} ref={content}
       onScroll={event => { current.scroll = event.currentTarget.scrollTop; }}>
       {current.text !== null && <pre style={{ fontSize: `${14 * current.zoom / 100}px` }}>{current.text || '（空文本文件）'}</pre>}
+      {current.document && <article className="document-paper" aria-label="DOCX 文本内容" style={{ fontSize: `${14 * current.zoom / 100}px` }}>
+        {current.document.paragraphs.map((paragraph, index) => <p key={index}>{paragraph || '\u00a0'}</p>)}
+      </article>}
       {current.spreadsheet && <SpreadsheetView key={active.key} value={current.spreadsheet} zoom={current.zoom} selectedSheet={current.sheet ?? ''}
         selectSheet={name => { current.sheet = name; redraw(previous => previous + 1); }} />}
+      {visible && current.image && <img key={active.key} className="local-image-preview" alt={`本地图片：${active.name}`}
+        src={`data:${current.image.mime};base64,${current.image.data}`} style={{ width: `${current.zoom}%` }}
+        onLoad={() => { current.imageLoading = false; current.imageError = ''; redraw(previous => previous + 1); }}
+        onError={() => { current.imageLoading = false; current.imageError = '图片解码失败，文件可能损坏；没有以空白图冒充成功，请定位原件核对。'; redraw(previous => previous + 1); }} />}
+      {visible && current.pdf && current.pdfData && <PdfView key={active.key} value={current.pdf} data={current.pdfData} zoom={current.zoom} page={current.page ?? 1}
+        selectPage={page => { current.page = page; redraw(previous => previous + 1); }} />}
     </div>
   </section>;
 }
