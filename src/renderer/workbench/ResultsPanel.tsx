@@ -15,7 +15,7 @@ export function ResultsPanel({ taskId, turnId, onClose, onPreview }: { taskId: s
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const selected = value?.changes.find(change => change.path === selectedPath);
   const selectedArtifact = value?.artifacts.find(artifact => artifact.path === selectedPath && artifact.turnId === turnId && artifact.sha256 === selected?.after?.sha256);
-  const previewKind = /\.(csv|xlsx)$/i.test(selectedPath ?? '') ? '表格' : '文本';
+  const previewKind = /\.(csv|xlsx)$/i.test(selectedPath ?? '') ? '表格' : /\.(png|jpe?g|webp|gif)$/i.test(selectedPath ?? '') ? '图片' : /\.pdf$/i.test(selectedPath ?? '') ? 'PDF' : /\.docx$/i.test(selectedPath ?? '') ? '文档' : '文本';
   async function load() {
     const current = ++sequence.current;
     setLoading(true); setError('');
@@ -50,7 +50,7 @@ export function ResultsPanel({ taskId, turnId, onClose, onPreview }: { taskId: s
         <p className="muted">比较基线：本轮开始 {new Date(value.baselineAt).toLocaleString()} → 当前检查 {new Date(value.observedAt).toLocaleString()}</p>
         <p className="muted">轮次：{value.turnId}<br />目录：{value.directory}</p>
         <p className="muted">变化可能包含外部人工修改，不全部归因于 Agent；这不是轮次结束时的原子快照。</p>
-        <details><summary>检查范围与原有改动</summary><p>排除：{value.excludedNames.join('、')}。普通文件上限 1 MiB，CSV/XLSX 上限 8 MiB，累计读取 32 MiB，最多 10000 条目 / 64 层；超过 1 MiB 仅保留指纹，表格另行解析预览。</p>
+        <details><summary>检查范围与原有改动</summary><p>排除：{value.excludedNames.join('、')}。普通文本上限 1 MiB，表格、文档及已开放图片上限 8 MiB，累计读取 32 MiB，最多 10000 条目 / 64 层；大于普通文本上限的受支持文件保留指纹，另行只读预览。</p>
           {value.baselineGit.status === 'available' ? <><p>本轮开始前已有 Git 改动：{value.baselineGit.changes.length} 项</p>
             <ul>{value.baselineGit.changes.map(change => <li key={change.path}>{change.path} · {change.index}{change.worktree}</li>)}</ul></>
             : <p>{value.baselineGit.message}</p>}</details>

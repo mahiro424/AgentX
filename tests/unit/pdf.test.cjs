@@ -72,3 +72,10 @@ test('PDF 解析错误：用户看到文件损坏原因，不把非必需 canvas
   await assert.rejects(readPdf(Buffer.from('损坏 PDF'), '.pdf'), error =>
     /PDF解析失败/.test(error.message) && /Invalid PDF|structure/i.test(error.message) && !/Cannot load|canvas|DOMMatrix/.test(error.message));
 });
+
+test('加密 PDF：真实 AES-256 文件明确不支持密码读取，保留原件和失败材料',async()=>{
+ const bytes=require('../helpers/encrypted-pdf.cjs');const {readPdf}=require('../../src/main/services/spreadsheet.ts'),{MaterialService}=require('../../src/main/services/materials.ts');
+ await assert.rejects(readPdf(bytes,'.pdf'),/加密|密码/);
+ const root=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'agentx-encrypted-pdf-'))),filename=path.join(root,'密码.pdf');await fs.writeFile(filename,bytes);
+ const service=new MaterialService(root),[material]=await service.register([filename]);assert.equal(material.status,'unreadable');assert.match(material.message,/加密|密码/);await assert.rejects(service.requireReady([material.materialId]),/加密|密码/);assert.deepEqual(await fs.readFile(filename),bytes);
+});

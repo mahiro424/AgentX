@@ -194,3 +194,13 @@ test('表格检查范围：1 至 8 MiB 的表格保留版本与预览，普通�
   const saved = await readWorkspaceBaseline(value.root, binding);
   assert.equal(saved.snapshot.files[0].sha256, artifact.sha256); assert.equal(saved.snapshot.files[0].text, null);
 });
+
+test('图片产物：实际文件建立版本引用，缺失保持来源而不返回缓存字节', async()=>{
+ const {readTaskResults}=require('../../src/main/services/task-results.ts'),{readFilePreview}=require('../../src/main/services/file-preview.ts');
+ const value=await fixture(),filename=path.join(value.directory,'结果.png');
+ const bytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jEAAAAABJRU5ErkJggg==','base64');await fs.writeFile(filename,bytes);
+ const result=await readTaskResults(value.root,value.request);assert.equal(result.artifacts.length,1);
+ const artifact=result.artifacts[0],source={kind:'result',taskId:value.taskId,resultId:artifact.resultId};
+ const preview=await readFilePreview(value.root,source);assert.equal(preview.status,'ready');assert.equal(preview.turnId,value.request.turnId);assert.deepEqual(Buffer.from(preview.image.data,'base64'),bytes);
+ await fs.unlink(filename);const missing=await readFilePreview(value.root,source);assert.equal(missing.status,'missing');assert.equal(missing.image,null);assert.equal(missing.version.sha256,artifact.sha256);
+});

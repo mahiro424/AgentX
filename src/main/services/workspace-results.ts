@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 export const WORKSPACE_SCAN_LIMITS = { fileBytes: 1024 * 1024, totalBytes: 32 * 1024 * 1024, entries: 10000, depth: 64 } as const;
-export const workspaceFileLimit = (filename: string) => ['.csv', '.xlsx', '.docx', '.pdf'].includes(path.extname(filename).toLowerCase()) ? 8 * 1024 * 1024 : WORKSPACE_SCAN_LIMITS.fileBytes;
+export const workspaceFileLimit = (filename: string) => ['.csv', '.xlsx', '.docx', '.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(path.extname(filename).toLowerCase()) ? 8 * 1024 * 1024 : WORKSPACE_SCAN_LIMITS.fileBytes;
 const excludedNames = ['.git', 'node_modules'];
 export interface WorkspaceFile { path: string; sha256: string; size: number; text: string | null }
 export interface WorkspaceIssue { path: string; reason: 'unreadable' | 'link' | 'limit' | 'changedDuringRead'; code?: string }

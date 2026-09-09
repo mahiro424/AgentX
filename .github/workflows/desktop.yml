@@ -35,3 +35,14 @@ jobs:
         run: npm run package
       - name: 独立临时数据与无密钥桌面测试
         run: npm test
+
+  diagnose-process:
+    name: 临时进程身份差分诊断
+    if: github.head_ref == 'm2-04' || github.ref == 'refs/heads/m2-04'
+    runs-on: windows-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: node scripts/diagnose-windows-process.cjs

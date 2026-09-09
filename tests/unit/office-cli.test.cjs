@@ -117,3 +117,20 @@ test('Windows 文件锁：独占锁定材料时读取失败，退出后可重试
   await run(cwd, ['read', filename, digest(bytes), '重试.json']);
   assert.equal(digest(await fs.readFile(filename)), digest(bytes));
 });
+
+test('Windows 文档锁：独占 DOCX 不返回空文档或落输出，释放后真实读取', { timeout: 20000 }, async t => {
+  const { spawn } = require('node:child_process'), { once } = require('node:events');
+  const cwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-docx-lock-')));
+  const {Document,Paragraph,Packer}=require('docx');
+  const filename = path.join(cwd, '锁定.docx'), bytes = await Packer.toBuffer(new Document({sections:[{children:[new Paragraph('锁定材料的实际内容')]}]})); await fs.writeFile(filename, bytes);
+  const script = `$f=[IO.File]::Open('${filename.replaceAll("'", "''")}',[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::None);[Console]::WriteLine('locked');[Console]::Out.Flush();Start-Sleep -Seconds 15;$f.Close()`;
+  const child = spawn(path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
+    ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const closed = once(child, 'close'); t.after(async () => { if (child.exitCode === null) child.kill(); await closed; });
+  const [ready] = await once(child.stdout, 'data'); assert.match(ready.toString(), /locked/);
+  await assert.rejects(run(cwd, ['read', filename, digest(bytes), '被锁定.json']), /EBUSY|EACCES|EPERM/);
+  assert.equal(await fs.access(path.join(cwd, '被锁定.json')).then(() => true, () => false), false);
+  child.kill(); await closed;
+  await run(cwd, ['read', filename, digest(bytes), '重试.json']);
+  assert.equal(digest(await fs.readFile(filename)), digest(bytes));
+});

@@ -10,6 +10,8 @@ import type { Spreadsheet } from '../../shared/contracts/spreadsheet';
 import { readSpreadsheet, readDocument, readPdf } from './spreadsheet';
 import type { OfficeDocument } from '../../shared/contracts/document';
 import type { PdfDocument } from '../../shared/contracts/pdf';
+import type { ImagePreview } from '../../shared/contracts/file-preview';
+import { imagePreview } from './image-preview';
 
 const identity = (stat: BigIntStats) => `${stat.dev}:${stat.ino}:${stat.isDirectory() ? 'directory' : `${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`}`;
 const validPath = (value: unknown): value is string => typeof value === 'string' && value.length <= 16000 && path.isAbsolute(value) && !/[\u0000-\u001f\u007f]/u.test(value);
@@ -24,8 +26,8 @@ export function pastedImageExtension(bytes: Buffer, mime: string): string {
   throw new Error('剪贴板图片格式无效；请保存为 PNG、JPEG 或 WebP 后添加');
 }
 
-export async function inspectMaterialFile(filename: string, parseOffice = true): Promise<{ record: Omit<MaterialRecord, 'materialId'>; text: string | null; spreadsheet: Spreadsheet | null; document: OfficeDocument | null; pdf: PdfDocument | null; pdfData: string | null }> {
-  const result = (record: Omit<MaterialRecord, 'materialId'>, text: string | null = null, spreadsheet: Spreadsheet | null = null, document: OfficeDocument | null = null, pdf: PdfDocument | null = null, pdfData: string | null = null) => ({ record, text, spreadsheet, document, pdf, pdfData });
+export async function inspectMaterialFile(filename: string, parseOffice = true, previewImage = false): Promise<{ record: Omit<MaterialRecord, 'materialId'>; text: string | null; spreadsheet: Spreadsheet | null; document: OfficeDocument | null; pdf: PdfDocument | null; pdfData: string | null; image: ImagePreview | null }> {
+  const result = (record: Omit<MaterialRecord, 'materialId'>, text: string | null = null, spreadsheet: Spreadsheet | null = null, document: OfficeDocument | null = null, pdf: PdfDocument | null = null, pdfData: string | null = null, image: ImagePreview | null = null) => ({ record, text, spreadsheet, document, pdf, pdfData, image });
   let record: Omit<MaterialRecord, 'materialId'> = { path: filename, name: path.basename(filename), kind: 'unsupported',
     status: 'unreadable', message: '材料无法读取，请核对访问权限', version: null };
   try {
@@ -61,6 +63,11 @@ export async function inspectMaterialFile(filename: string, parseOffice = true):
       let spreadsheet: Spreadsheet | null = null;
       let document: OfficeDocument | null = null;
       let pdf: PdfDocument | null = null;
+      let image: ImagePreview | null = null;
+      if (kind === 'image' && previewImage) {
+        try { image = imagePreview(bytes); }
+        catch (cause) { return result({ ...record, status: 'unreadable', message: cause instanceof Error ? cause.message : '图片无法预览' }); }
+      }
       if (kind === 'text') {
         try {
           if (bytes.includes(0)) throw new Error('binary');
@@ -74,7 +81,7 @@ export async function inspectMaterialFile(filename: string, parseOffice = true):
           identity(initial) !== identity(await fs.lstat(canonical, { bigint: true }))) return result({ ...record, status: 'changed', message: '材料在办公解析期间发生变化，请重查' });
       }
       return result({ ...record, status: kind === 'image' ? 'blockedImage' : 'ready',
-        message: kind === 'image' ? '图像能力尚未验证，含图发送已阻断' : kind === 'spreadsheet' ? '表格可读取；公式未重算，尚不代表 Agent 已读取' : '可读取；尚不代表 Agent 已读取' }, text, spreadsheet, document, pdf, pdf ? bytes.toString('base64') : null);
+        message: kind === 'image' ? '图像能力尚未验证，含图发送已阻断' : kind === 'spreadsheet' ? '表格可读取；公式未重算，尚不代表 Agent 已读取' : '可读取；尚不代表 Agent 已读取' }, text, spreadsheet, document, pdf, pdf ? bytes.toString('base64') : null, image);
     } finally { await handle.close(); }
   } catch (cause) {
     const code = (cause as NodeJS.ErrnoException).code;
@@ -149,12 +156,13 @@ export class MaterialService {
   }
 
   async preview(id: string) {
-    const [record] = readMaterials(this.root, [id]), observed = await inspectMaterialFile(record.path);
+    const [record] = readMaterials(this.root, [id]), observed = await inspectMaterialFile(record.path, true, true);
     const material = compareMaterial(record, observed.record);
     return { material, currentVersion: observed.record.version, text: material.status === 'ready' ? observed.text : null,
       spreadsheet: material.status === 'ready' ? observed.spreadsheet : null,
       document: material.status === 'ready' ? observed.document : null,
       pdf: material.status === 'ready' ? observed.pdf : null, pdfData: material.status === 'ready' ? observed.pdfData : null,
+      image: material.status === 'blockedImage' ? observed.image : null,
       observedAt: new Date().toISOString() };
   }
 

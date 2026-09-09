@@ -9,6 +9,7 @@ export const FILE_PREVIEW_OPEN_CHANNEL = 'agentx:file-preview-open';
 export interface MaterialPreviewSource { kind: 'material'; scope: DraftScope; materialId: string }
 export interface ResultPreviewSource { kind: 'result'; taskId: string; resultId: string }
 export type FilePreviewSource = MaterialPreviewSource | ResultPreviewSource;
+export interface ImagePreview { mime: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'; data: string; width: number; height: number }
 export interface FilePreview {
   source: FilePreviewSource;
   name: string;
@@ -22,6 +23,7 @@ export interface FilePreview {
   document?: OfficeDocument | null;
   pdf?: PdfDocument | null;
   pdfData?: string | null;
+  image?: ImagePreview | null;
   observedAt: string;
   taskId: string | null;
   turnId: string | null;

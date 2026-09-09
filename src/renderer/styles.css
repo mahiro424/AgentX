@@ -425,3 +425,4 @@ select { min-height: 36px; border: 1px solid var(--border-default); border-radiu
 .task-spinner { flex-shrink: 0; display: inline-block; width: 16px; height: 16px; border: 1.5px solid var(--focus-ring); border-right-color: transparent; border-radius: 50%; animation: task-spin 1s linear infinite; }
 @keyframes task-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .task-spinner { animation: none; } }
+.local-image-preview { display: block; height: auto; object-fit: contain; margin: 0 auto; }
