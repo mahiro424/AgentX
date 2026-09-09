@@ -32,7 +32,8 @@ export async function readTaskResults(root: string, input: unknown): Promise<Tas
   const compared = compareWorkspaceSnapshots(baseline.snapshot, after);
   for (const change of compared.changes) {
     const file = change.after;
-    if (!file || file.text === null || !['.txt', '.md', '.markdown'].includes(path.extname(file.path).toLowerCase())) continue;
+    if (!file || !['.txt', '.md', '.markdown', '.csv', '.xlsx'].includes(path.extname(file.path).toLowerCase()) ||
+        (file.text === null && !['.csv', '.xlsx'].includes(path.extname(file.path).toLowerCase()))) continue;
     await saveArtifact(root, { taskId: task.taskId, threadId: task.threadId, turnId: input.turnId, operationId,
       directory: task.directory, path: file.path, sha256: file.sha256, size: file.size, observedAt: after.capturedAt });
   }

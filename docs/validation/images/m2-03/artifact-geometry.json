@@ -1,0 +1,35 @@
+{
+  "modelCalls": 0,
+  "sourceTaskId": "2b775825-1051-4c28-abe5-679a0e576f7a",
+  "sourceTurnId": "01a08683-99bb-72f0-acf6-701da5c95cc0",
+  "geometry": [
+    {
+      "theme": "light",
+      "width": 1280,
+      "height": 820,
+      "contained": true,
+      "keyboardFocus": true
+    },
+    {
+      "theme": "light",
+      "width": 960,
+      "height": 640,
+      "contained": true,
+      "keyboardFocus": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "height": 820,
+      "contained": true,
+      "keyboardFocus": true
+    },
+    {
+      "theme": "dark",
+      "width": 960,
+      "height": 640,
+      "contained": true,
+      "keyboardFocus": true
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { WORKSPACE_SCAN_LIMITS, type WorkspaceSnapshot, type WorkspaceGitState } from '../services/workspace-results';
+import { WORKSPACE_SCAN_LIMITS, workspaceFileLimit, type WorkspaceSnapshot, type WorkspaceGitState } from '../services/workspace-results';
 
 interface ResultBinding { taskId: string; operationId: string }
 interface WorkspaceBaseline extends ResultBinding { version: 1; snapshot: WorkspaceSnapshot; git: WorkspaceGitState }
@@ -21,7 +21,7 @@ function validate(value: WorkspaceBaseline, binding: ResultBinding): void {
       !snapshot.excludedNames.every(name => typeof name === 'string' && relativePath(name) && !name.includes('/'))) throw new Error('基线内容结构无效');
   const names = new Set<string>();
   for (const file of snapshot.files) {
-    if (!file || !relativePath(file.path) || names.has(file.path) || !Number.isSafeInteger(file.size) || file.size < 0 || file.size > WORKSPACE_SCAN_LIMITS.fileBytes ||
+    if (!file || !relativePath(file.path) || names.has(file.path) || !Number.isSafeInteger(file.size) || file.size < 0 || file.size > workspaceFileLimit(file.path) ||
         typeof file.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(file.sha256) || (file.text !== null && typeof file.text !== 'string')) throw new Error('基线文件记录无效');
     if (file.text !== null && (Buffer.byteLength(file.text) !== file.size || digest(file.text) !== file.sha256)) throw new Error('基线文件内容校验失败');
     names.add(file.path);

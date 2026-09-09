@@ -5,13 +5,15 @@ import { rendererConfig } from './webpack.renderer.config';
 import path from 'node:path';
 
 const { prepareCodex } = require('./scripts/prepare-codex.cjs') as { prepareCodex(): Promise<string> };
+const { prepareOfficeLicenses } = require('./scripts/prepare-office-licenses.cjs') as { prepareOfficeLicenses(): Promise<string> };
 
 const config: ForgeConfig = {
-  packagerConfig: { asar: true, executableName: 'AgentX', extraResource: [path.resolve(__dirname, '.cache/engine')] },
+  packagerConfig: { asar: true, executableName: 'AgentX', extraResource: [path.resolve(__dirname, '.cache/engine'), path.resolve(__dirname, '.cache/licenses/THIRD_PARTY_NOTICES.txt')] },
   hooks: {
     prePackage: async (_config, platform, arch) => {
       if (platform !== 'win32' || arch !== 'x64') throw new Error('M1 只打包 Windows x64');
       await prepareCodex();
+      await prepareOfficeLicenses();
     },
     preStart: async () => { await prepareCodex(); },
   },

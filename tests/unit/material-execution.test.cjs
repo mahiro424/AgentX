@@ -7,7 +7,7 @@ const { randomUUID } = require('node:crypto');
 const { PassThrough } = require('node:stream');
 require('ts-node').register({ transpileOnly: true });
 
-test('材料执行：通过公开文本输入交给引擎，首发和续轮保留不可变材料关联，材料变化不调用模型', async t => {
+for (const extension of ['txt', 'csv']) test(`材料执行 ${extension}：首发续轮补充使用同一公开文本输入，保留版本与变化阻断`, async t => {
   const boundary = require('../../src/main/runtime/codex/process.ts');
   const { CodexTransport } = require('../../src/main/runtime/codex/transport.ts');
   const { ExecutionService } = require('../../src/main/services/execution.ts');
@@ -15,7 +15,7 @@ test('材料执行：通过公开文本输入交给引擎，首发和续轮保�
   const { saveDraft, readDraft } = require('../../src/main/storage/drafts.ts');
   const { readInputMaterials } = require('../../src/main/storage/materials.ts');
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-material-execution-')));
-  const filename = path.join(root, '交付.txt'); await fs.writeFile(filename, '指定事实：预算 120 元');
+  const filename = path.join(root, `交付.${extension}`); await fs.writeFile(filename, '指定事实：预算 120 元');
   const [material] = await new MaterialService(root).register([filename]);
   const scope = { projectId: null, taskId: null }, text = '读取材料并生成新文件';
   const draft = saveDraft(root, { ...scope, text, materialIds: [material.materialId], expectedRevision: 0 });
@@ -54,6 +54,10 @@ test('材料执行：通过公开文本输入交给引擎，首发和续轮保�
   assert.ok(sent[0].text.includes(JSON.stringify(filename))); assert.ok(sent[0].text.includes(material.version.sha256));
   assert.ok(!sent[0].text.includes('指定事实：预算 120 元'), '不假装上传正文，交给引擎本地读取');
   assert.match(sent[0].text, /保留原件/);
+  if (extension === 'csv') {
+    assert.match(sent[0].text, /office-cli/); assert.match(sent[0].text, /ELECTRON_RUN_AS_NODE/);
+    assert.match(sent[0].text, /公式未重算/); assert.match(sent[0].text, /Out-String/);
+  }
   saveDraft(root, { projectId: null, taskId, text: '补充核对材料', materialIds: [material.materialId], expectedRevision: 0 });
   await service.steer({ taskId, threadId: first.threadId, turnId: first.turnId, operationId: randomUUID(), text: '补充核对材料',
     materials: { revision: 1, ids: [material.materialId] } });

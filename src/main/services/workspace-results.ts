@@ -5,6 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 export const WORKSPACE_SCAN_LIMITS = { fileBytes: 1024 * 1024, totalBytes: 32 * 1024 * 1024, entries: 10000, depth: 64 } as const;
+export const workspaceFileLimit = (filename: string) => ['.csv', '.xlsx'].includes(path.extname(filename).toLowerCase()) ? 8 * 1024 * 1024 : WORKSPACE_SCAN_LIMITS.fileBytes;
 const excludedNames = ['.git', 'node_modules'];
 export interface WorkspaceFile { path: string; sha256: string; size: number; text: string | null }
 export interface WorkspaceIssue { path: string; reason: 'unreadable' | 'link' | 'limit' | 'changedDuringRead'; code?: string }
@@ -77,7 +78,7 @@ export async function captureWorkspace(directory: string): Promise<WorkspaceSnap
           if (initial.isSymbolicLink() || await fs.realpath(filename) !== filename) { issues.push({ path: name, reason: 'link' }); continue; }
           if (initial.isDirectory()) { await visit(filename, depth + 1); continue; }
           if (!initial.isFile()) { issues.push({ path: name, reason: 'unreadable' }); continue; }
-          if (initial.size > WORKSPACE_SCAN_LIMITS.fileBytes || totalBytes + initial.size > WORKSPACE_SCAN_LIMITS.totalBytes) {
+          if (initial.size > workspaceFileLimit(filename) || totalBytes + initial.size > WORKSPACE_SCAN_LIMITS.totalBytes) {
             issues.push({ path: name, reason: 'limit' }); continue;
           }
           const handle = await fs.open(filename, 'r');
@@ -97,7 +98,7 @@ export async function captureWorkspace(directory: string): Promise<WorkspaceSnap
                 !unchanged(initial, await fs.lstat(filename))) { issues.push({ path: name, reason: 'changedDuringRead' }); continue; }
             const content = buffer.subarray(0, length);
             let text: string | null = null;
-            if (!content.includes(0)) {
+            if (length <= WORKSPACE_SCAN_LIMITS.fileBytes && !content.includes(0)) {
               try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(content); }
               catch { /* 非 UTF-8 保留指纹，不伪造可展示文本。 */ }
             }
