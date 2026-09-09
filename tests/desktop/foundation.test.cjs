@@ -138,6 +138,8 @@ test('keyboard：缩窄窗口不把侧栏中的键盘焦点丢给页面正文', 
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '展开侧栏');
   assert.equal(await page.getByRole('button', { name: '展开侧栏', exact: true }).evaluate(node => getComputedStyle(node).outlineStyle), 'solid');
   await page.keyboard.press('Tab');
+  assert.equal(await page.getByRole('button', { name: '搜索会话', exact: true }).evaluate(node => document.activeElement === node), true);
+  await page.keyboard.press('Tab');
   assert.equal(await page.getByRole('button', { name: '新会话', exact: true }).evaluate(node => document.activeElement === node), true);
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.activeElement?.id === 'task-draft');
@@ -220,7 +222,7 @@ test('IPC：仅暴露产品桥，拒绝非法偏好且不更改原配置', { tim
   const { app, page, data } = await launch();
   t.after(() => app.close());
   const surface = await page.evaluate(() => ({ keys: Object.keys(window.agentx).sort(), frozen: Object.isFrozen(window.agentx), nodeAccess: typeof window.require }));
-  assert.deepEqual(surface, { keys: ['answerExecutionApproval', 'answerExit', 'chooseProject', 'continueExecution', 'copyOutput', 'fetchModelCatalog', 'getAppInfo', 'getDraft', 'getExecution', 'getExitState', 'getModelSettings', 'getPreferences', 'getReconciliation', 'getTaskHistory', 'getTaskResults', 'getWorkspace', 'onExecutionChanged', 'onExitChanged', 'onModelSettingsChanged', 'onWorkspaceChanged', 'renameProject', 'revealModelKey', 'saveDraft', 'saveModelKey', 'savePreferences', 'setActiveModel', 'setModelConnectionEnabled', 'setModelSettingsVisible', 'setSelectedModels', 'startExecution', 'steerExecution', 'stopExecution', 'testModel'], frozen: true, nodeAccess: 'undefined' });
+  assert.deepEqual(surface, { keys: ['answerExecutionApproval', 'answerExit', 'chooseProject', 'continueExecution', 'copyOutput', 'fetchModelCatalog', 'getAppInfo', 'getDraft', 'getExecution', 'getExitState', 'getModelSettings', 'getPreferences', 'getReconciliation', 'getSearchIndexState', 'getTaskHistory', 'getTaskResults', 'getWorkspace', 'locateSearchHit', 'onExecutionChanged', 'onExitChanged', 'onModelSettingsChanged', 'onSearchIndexChanged', 'onWorkspaceChanged', 'rebuildSearchIndex', 'renameProject', 'renameTask', 'revealModelKey', 'saveDraft', 'saveModelKey', 'savePreferences', 'searchTasks', 'setActiveModel', 'setModelConnectionEnabled', 'setModelSettingsVisible', 'setSelectedModels', 'setTaskArchived', 'setTaskPinned', 'startExecution', 'steerExecution', 'stopExecution', 'testModel'], frozen: true, nodeAccess: 'undefined' });
   await page.evaluate(() => window.agentx.savePreferences({ theme: 'light', zoom: 1 }));
   const previous = await fs.readFile(path.join(data, 'config.json'), 'utf8');
   for (const invalid of [null, [], { theme: 'dark', zoom: 2 }, { theme: 'unknown', zoom: 1 }, { theme: 'dark', zoom: 1, extra: true }]) {
@@ -228,21 +230,31 @@ test('IPC：仅暴露产品桥，拒绝非法偏好且不更改原配置', { tim
     assert.equal(await fs.readFile(path.join(data, 'config.json'), 'utf8'), previous);
   }
   assert.deepEqual(await page.evaluate(() => window.agentx.getPreferences()), { theme: 'light', zoom: 1 });
+  const workspace = await page.evaluate(() => window.agentx.getWorkspace());
+  const validSearch = { query: '片段', scope: 'all', projectId: null, includeArchived: false };
+  for (const invalid of [null, [], {}, { ...validSearch, scope: 'sql' }, { ...validSearch, projectId: 'C:\\outside' },
+    { ...validSearch, query: 'x'.repeat(501) }, { ...validSearch, sql: 'SELECT * FROM tasks' }]) {
+    await assert.rejects(page.evaluate(value => window.agentx.searchTasks(value), invalid), /搜索请求无效/);
+  }
+  await assert.rejects(page.evaluate(() => window.agentx.locateSearchHit({ taskId: 'unknown', threadId: 'foreign', turnId: 'foreign', itemId: 'foreign', sourceRevision: '0'.repeat(64) })), /定位请求无效/);
+  assert.deepEqual(await page.evaluate(() => window.agentx.getWorkspace()), workspace);
+  assert.equal(await fs.readFile(path.join(data, 'config.json'), 'utf8'), previous);
+  await assert.rejects(fs.stat(path.join(data, 'engine')), { code: 'ENOENT' });
 });
 
 test('IPC 来源：相同地址的其他窗口也不能写入产品偏好', { timeout: 20000 }, async t => {
   const { app, page, data } = await launch();
   t.after(() => app.close());
   const foreignPreload = path.join(data, 'foreign-preload.cjs');
-  await fs.writeFile(foreignPreload, "const {contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('foreignClient',{save:()=>ipcRenderer.invoke('agentx:preferences-save',{theme:'dark',zoom:1.5})});", 'utf8');
+  await fs.writeFile(foreignPreload, "const {contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('foreignClient',{save:()=>ipcRenderer.invoke('agentx:preferences-save',{theme:'dark',zoom:1.5}),search:()=>ipcRenderer.invoke('agentx:task-search',{query:'',scope:'all',projectId:null,includeArchived:false}),index:()=>ipcRenderer.invoke('agentx:search-index-read'),rebuild:()=>ipcRenderer.invoke('agentx:search-index-rebuild'),locate:()=>ipcRenderer.invoke('agentx:task-search-locate',{})});", 'utf8');
   const denied = await app.evaluate(async ({ BrowserWindow }, preload) => {
     const product = BrowserWindow.getAllWindows()[0];
     const other = new BrowserWindow({ show: false, webPreferences: { preload, sandbox: true, contextIsolation: true, nodeIntegration: false } });
     try {
       await other.loadURL(product.webContents.getURL());
-      return await other.webContents.executeJavaScript("window.foreignClient.save().then(() => false, error => error.message.includes('拒绝非产品主页面'))");
+      return await other.webContents.executeJavaScript("Promise.all(Object.values(window.foreignClient).map(invoke => invoke().then(() => false, error => error.message.includes('拒绝非产品主页面'))))");
     } finally { other.destroy(); }
   }, foreignPreload);
-  assert.equal(denied, true);
+  assert.deepEqual(denied, [true, true, true, true, true]);
   assert.deepEqual(await page.evaluate(() => window.agentx.getPreferences()), { theme: 'system', zoom: 1 });
 });

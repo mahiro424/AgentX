@@ -1,9 +1,10 @@
-import type { ProjectChoice, ProjectOperation, ProjectRename, ProjectRecord, WorkspaceSnapshot } from './projects';
+import type { ProjectChoice, ProjectOperation, ProjectRename, ProjectRecord, WorkspaceSnapshot, TaskRename, TaskPin, TaskArchive, OrganizedTaskSummary } from './projects';
 import type { ExitAnswer, ExitSnapshot } from './lifecycle';
 import type { ReconciliationRequest, ReconciliationSnapshot } from './reconciliation';
 import type { ExecutionStart, ExecutionContinue, ExecutionControl, ExecutionSnapshot, ExecutionSteer, ExecutionApproval } from './execution';
 import type { TaskSummary } from './projects';
 import type { TaskHistory, TaskHistoryRequest } from './history';
+import type { TaskSearchRequest, TaskSearchSnapshot, TaskSearchTarget, TaskSearchLocation, SearchIndexState } from './search';
 import type { TaskResults, TaskResultsRequest } from './results';
 import type { DraftScope, DraftRecord, DraftSave } from './drafts';
 import type { ModelTestRequest, ActiveModelChange, ConnectionChange, KeySubmission, ModelOperation, ModelSelectionChange, ModelSettings } from './models';
@@ -26,6 +27,11 @@ export interface AppInfo {
 }
 
 export interface AgentXBridge {
+  searchTasks(value: TaskSearchRequest): Promise<TaskSearchSnapshot>;
+  locateSearchHit(value: TaskSearchTarget): Promise<TaskSearchLocation>;
+  getSearchIndexState(): Promise<SearchIndexState>;
+  rebuildSearchIndex(): Promise<void>;
+  onSearchIndexChanged(listener: () => void): () => void;
   getReconciliation(value: ReconciliationRequest): Promise<ReconciliationSnapshot>;
   getExitState(): Promise<ExitSnapshot>;
   answerExit(value: ExitAnswer): Promise<void>;
@@ -43,6 +49,9 @@ export interface AgentXBridge {
   answerExecutionApproval(value: ExecutionApproval): Promise<void>;
   onExecutionChanged(listener: () => void): () => void;
   renameProject(value: ProjectRename): Promise<ProjectRecord>;
+  setTaskPinned(value: TaskPin): Promise<OrganizedTaskSummary>;
+  setTaskArchived(value: TaskArchive): Promise<OrganizedTaskSummary>;
+  renameTask(value: TaskRename): Promise<OrganizedTaskSummary>;
   chooseProject(value: ProjectOperation): Promise<ProjectChoice>;
   onWorkspaceChanged(listener: () => void): () => void;
   getWorkspace(): Promise<WorkspaceSnapshot>;

@@ -1,5 +1,9 @@
 import { ProjectEditor } from './shell/ProjectEditor';
+import { TaskEditor } from './shell/TaskEditor';
+import { TaskMenu } from './shell/TaskMenu';
 import { ExitDialog } from './shell/ExitDialog';
+import { SearchDialog, SearchIcon } from './shell/SearchDialog';
+import type { TaskSearchLocation, TaskSearchResult } from '../shared/contracts/search';
 import { useWorkspace } from './shell/useWorkspace';
 import { FolderIcon, ProjectSidebar } from './shell/ProjectSidebar';
 import { createRoot } from 'react-dom/client';
@@ -64,15 +68,30 @@ function App() {
   const selectedTask = workspace.snapshot?.tasks.find(task => task.taskId === workspace.selectedTaskId);
   const visibleExecutionError = executionActionError?.taskId === workspace.selectedTaskId && (!executionActionError.turnId || executionActionError.turnId === selectedTask?.turnId) ? executionActionError.message : '';
   const [resultsTask, setResultsTask] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchLocation, setSearchLocation] = useState<TaskSearchLocation | null>(null);
+  useEffect(() => {
+    // 定位快照只用于本次打开，离开会话后不能替代下次公开历史读取。
+    if (searchLocation && (searchLocation.taskId !== selectedTask?.taskId ||
+      searchLocation.history.turns.at(-1)?.turnId !== selectedTask.turnId ||
+      (searchLocation.history.turns.at(-1)?.status === 'inProgress' && ['completed', 'failed', 'interrupted'].includes(selectedTask.executionState)))) setSearchLocation(null);
+  }, [selectedTask?.taskId, selectedTask?.turnId, selectedTask?.executionState, searchLocation]);
   const resultsTrigger = useRef<HTMLButtonElement>(null);
   const canInspect = !!selectedTask?.turnId && ['completed', 'failed', 'interrupted'].includes(selectedTask.executionState);
   const resultsOpen = canInspect && resultsTask === selectedTask?.taskId;
-  const history = useHistory(selectedTask?.taskId ?? null, canInspect ? selectedTask!.turnId : null);
-  const hasCurrentHistory = !!currentExecution?.task?.turnId && !!history.value?.turns.some(turn => turn.turnId === currentExecution.task!.turnId);
+  const liveSearch = !!currentExecution && !canInspect && searchLocation?.taskId === selectedTask?.taskId &&
+    searchLocation?.history.turns.at(-1)?.turnId === currentExecution.task?.turnId;
+  const searchHistory = canInspect && searchLocation?.history.turns.at(-1)?.status === 'inProgress' ? undefined : searchLocation?.history;
+  const history = useHistory(selectedTask?.taskId ?? null, canInspect || liveSearch ? selectedTask!.turnId : null, searchHistory);
+  const hasCurrentHistory = !liveSearch && !!currentExecution?.task?.turnId && !!history.value?.turns.some(turn => turn.turnId === currentExecution.task!.turnId);
+  const liveHistoryTurn = liveSearch ? history.value?.turns.find(turn => turn.turnId === currentExecution?.task?.turnId) : undefined;
+  // 公开历史提供用户项的真实 ID；后到的执行快照覆盖同项内容，不能让搜索快照冻结活动轮。
+  const liveItems = liveHistoryTurn ? [...new Map([...liveHistoryTurn.items, ...currentExecution!.items].map(item => [item.itemId, item])).values()] : currentExecution?.items ?? [];
+  const visibleHistory = liveSearch && history.value ? { ...history.value, turns: history.value.turns.filter(turn => turn.turnId !== currentExecution?.task?.turnId) } : history.value;
   const [outputSelection, setOutputSelection] = useState<{ taskId: string; threadId: string; turnId: string; itemId: string } | null>(null);
   const outputTrigger = useRef<HTMLButtonElement | null>(null);
   const outputItem = outputSelection?.taskId === workspace.selectedTaskId
-    ? [...(history.value?.turns.flatMap(turn => turn.items) ?? []), ...(hasCurrentHistory ? [] : currentExecution?.items ?? [])].find((item): item is CommandItem => item.kind === 'command' &&
+    ? [...(hasCurrentHistory ? [] : liveItems), ...(history.value?.turns.flatMap(turn => turn.items) ?? [])].find((item): item is CommandItem => item.kind === 'command' &&
       item.threadId === outputSelection.threadId && item.turnId === outputSelection.turnId && item.itemId === outputSelection.itemId) : undefined;
   function openOutput(item: CommandItem, trigger: HTMLButtonElement) {
     if (!workspace.selectedTaskId) return;
@@ -93,6 +112,7 @@ function App() {
   const reconciliationTaskId = selectedTask?.executionState === 'reconciling' || (selectedTask && reconciliationTaskIds.includes(selectedTask.taskId))
     ? selectedTask!.taskId : reconciliationTaskIds[0] ?? (busyTask?.executionState === 'reconciling' ? busyTask.taskId : null);
   const blockedReason = submitting || execution.snapshot?.preparing ? '正在提交，请等待确认，不会重复发送。'
+    : selectedTask?.archivedAt ? '会话已归档，请先显式恢复后再发送；原草稿和历史保留。'
     : draftState.loading || draftState.saving || draftState.error ? '请先确认草稿已读取并保存。'
     : !workspace.snapshot || workspace.error || !execution.snapshot || execution.error ? '请先完成项目和执行状态读取。'
     : reconciliationTaskIds.length ? '存在引擎或后台回收待核对，不会发送新任务。'
@@ -112,6 +132,25 @@ function App() {
   const [steeringTaskId, setSteeringTaskId] = useState<string | null>(null);
   const [steerNotice, setSteerNotice] = useState<{ taskId: string; turnId: string; message: string } | null>(null);
   const canSteer = !!currentState && ['running', 'waitingApproval', 'waitingInput'].includes(currentState);
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if (event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === 'k' && !event.isComposing && !document.querySelector('dialog[open]')) {
+        event.preventDefault(); setSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', shortcut);
+    return () => window.removeEventListener('keydown', shortcut);
+  }, []);
+  async function openSearchResult(result: TaskSearchResult) {
+    const location = result.source ? await window.agentx.locateSearchHit({ taskId: result.taskId, ...result.source }) : null;
+    const current = await window.agentx.getWorkspace();
+    const task = current.tasks.find(task => task.taskId === result.taskId);
+    if (!task) throw new Error('原会话已不可读取，请重新搜索');
+    if (location && (task.threadId !== location.history.threadId || task.turnId !== location.history.turns.at(-1)?.turnId)) throw new Error('会话在定位期间已变化，请重新搜索');
+    if (!await workspace.load()) throw new Error('命中已核验，但会话列表读取失败；请重试搜索');
+    setSearchLocation(location); setResultsTask(null); setOutputSelection(null);
+    workspace.setSelectedProjectId(task.projectId); workspace.setSelectedTaskId(task.taskId); setView('workbench');
+  }
   useEffect(() => { draftRevision.current++; }, [workspace.selectedProjectId, workspace.selectedTaskId]);
 
   async function sendTurn() {
@@ -236,9 +275,14 @@ function App() {
   useEffect(() => { void readAppInfo(); }, []);
 
   return <div className="app-shell">
+    <SearchDialog open={searchOpen} projects={workspace.snapshot?.projects ?? []} onClose={() => setSearchOpen(false)} onOpen={openSearchResult} />
     {workspace.editing && <ProjectEditor project={workspace.editing} onSaved={() => void workspace.load()} onClose={workspace.closeEditor} />}
+    {workspace.taskMenu && <TaskMenu menu={workspace.taskMenu} onRename={workspace.startTaskEditing} busy={!!workspace.organizingTaskId}
+      onArchive={() => void workspace.archiveTask(workspace.taskMenu!.task, workspace.taskMenu!.trigger)}
+      onPin={() => void workspace.pinTask(workspace.taskMenu!.task, workspace.taskMenu!.trigger)} onClose={workspace.closeTaskMenu} />}
+    {workspace.editingTask && <TaskEditor task={workspace.editingTask} onSaved={() => void workspace.load()} onClose={workspace.closeTaskEditor} />}
     {sidebarOpen && <aside ref={sidebar} className="sidebar" aria-label="侧栏" style={{ width: sidebarWidth }}>
-      <header className="brand drag-region"><span>AgentX</span><button ref={sidebarToggle} className="icon-button" aria-label="收起侧栏" onClick={toggleSidebar}><PanelIcon /></button></header>
+      <header className="brand drag-region"><span>AgentX</span><span className="brand-actions"><button className="icon-button" aria-label="搜索会话" title="搜索会话（Ctrl+K）" onClick={() => setSearchOpen(true)}><SearchIcon /></button><button ref={sidebarToggle} className="icon-button" aria-label="收起侧栏" onClick={toggleSidebar}><PanelIcon /></button></span></header>
       <button className="new-session" onClick={newSession}>
         <span aria-hidden="true">＋</span>新会话
       </button>
@@ -259,12 +303,18 @@ function App() {
         }} />
     </aside>}
     <div className="workspace">
-      <header className="window-bar drag-region">{!sidebarOpen && <><button ref={sidebarToggle} className="icon-button" aria-label="展开侧栏" onClick={toggleSidebar}><PanelIcon /></button><button className="icon-button" aria-label="新会话" onClick={newSession}>＋</button><button className="icon-button" aria-label="设置" onClick={() => setView('settings')}><SettingsIcon /></button></>}</header>
+      <header className="window-bar drag-region">{!sidebarOpen && <><button ref={sidebarToggle} className="icon-button" aria-label="展开侧栏" onClick={toggleSidebar}><PanelIcon /></button><button className="icon-button" aria-label="搜索会话" title="搜索会话（Ctrl+K）" onClick={() => setSearchOpen(true)}><SearchIcon /></button><button className="icon-button" aria-label="新会话" onClick={newSession}>＋</button><button className="icon-button" aria-label="设置" onClick={() => setView('settings')}><SettingsIcon /></button></>}</header>
       <div className={`workbench-layout${resultsOpen || outputItem ? ' has-results' : ''}`} hidden={view !== 'workbench'}>
       <main className={`welcome${selectedTask || currentExecution?.task || reconciliationTaskId ? ' execution-workbench' : ''}`}>
         <div className="welcome-heading">
-          <h1 title={selectedTask?.title}>{selectedTask?.title ?? '今天想完成什么工作？'}</h1>
+          <div className="task-heading"><h1 title={selectedTask?.title}>{selectedTask?.title ?? '今天想完成什么工作？'}</h1>
+            {selectedTask && <button className="icon-button" aria-label="会话操作" title="会话操作" aria-haspopup="menu"
+              aria-expanded={workspace.taskMenu?.task.taskId === selectedTask.taskId}
+              onClick={event => workspace.openTaskMenu(selectedTask, event.currentTarget)}>⋯</button>}
+          </div>
           <p>{currentState ? currentState === 'stopping' ? '正在停止，等待引擎确认…' : taskStateLabel[currentState] : selectedTask ? taskStateLabel[selectedTask.executionState] : '用自然语言描述目标，在这里开始工作。'}</p>
+          {selectedTask?.archivedAt && <p className="muted">已归档 · 原历史和文件保留 <button className="secondary-button" aria-label="恢复会话"
+            disabled={!!workspace.organizingTaskId} onClick={event => void workspace.archiveTask(selectedTask, event.currentTarget)}>恢复会话</button></p>}
           {canInspect && <button ref={resultsTrigger} className="secondary-button inspect-results" aria-label="查看文件改动" aria-expanded={resultsOpen} onClick={() => { setOutputSelection(null); setResultsTask(selectedTask!.taskId); }}>查看文件改动</button>}
         </div>
         {(selectedTask || currentExecution || reconciliationTaskId) && <div className="execution-transcript">
@@ -272,9 +322,11 @@ function App() {
         {history.loading && <p role="status" className="muted">正在读取会话历史…</p>}
         {history.error && <p role="alert" className="error-message">历史读取失败：{history.error} <button className="secondary-button" onClick={() => void history.load()}>重新读取历史</button></p>}
         {history.value && (history.loading || history.error || history.value.turns.at(-1)?.turnId !== selectedTask?.turnId) && <p className="muted">以下保留先前成功读取的历史，不代表当前轮已结束。</p>}
-        {history.value && <HistoryTimeline history={history.value} onOpenOutput={openOutput} />}
-        {currentExecution && !hasCurrentHistory && <ExecutionTimeline items={currentExecution.items} approvals={currentExecution.approvals} pending={pendingApprovals}
-          inputText={currentExecution.inputText} onOpenOutput={openOutput}
+        {visibleHistory && <HistoryTimeline history={visibleHistory} onOpenOutput={openOutput}
+          searchSource={history.value === searchLocation?.history ? searchLocation.source : undefined} />}
+        {currentExecution && !hasCurrentHistory && <ExecutionTimeline items={liveItems} approvals={currentExecution.approvals} pending={pendingApprovals}
+          inputText={liveItems.some(item => item.kind === 'userMessage') ? undefined : currentExecution.inputText} onOpenOutput={openOutput}
+          searchSource={liveSearch && history.value === searchHistory ? searchLocation?.source : undefined}
           plan={currentExecution.plan} active={!!currentState && ['running', 'waitingApproval', 'waitingInput', 'stopping'].includes(currentState) && !execution.error}
           canAnswer={currentState === 'waitingApproval' && !execution.error && !stopping} onAnswer={(token, decision) => void answerApproval(token, decision)} />}
         </div>}
@@ -367,6 +419,10 @@ function App() {
         </div>
       </main>
       <div className="read-status">
+        {!sidebarOpen && (workspace.taskActionError || workspace.error) && <div role="alert" className="error-message">
+          {workspace.taskActionError}{workspace.error && <p>{workspace.error}</p>}
+          <button className="secondary-button" onClick={() => void workspace.load()}>重读会话列表</button>
+        </div>}
         {(!info || !preferences) && !error && <p role="status" className="muted">正在读取应用信息与本地偏好…</p>}
         {error && <div role="alert" className="error-message">{error} <button className="secondary-button" onClick={() => void readAppInfo()}>重试</button></div>}
       </div>

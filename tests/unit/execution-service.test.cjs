@@ -229,6 +229,94 @@ test('产品历史读取：只接受 taskId，从产品记录定位历史，无�
 });
 
 
+test('搜索活动历史：只读本实例绑定轮次的公开历史，使用真实用户项 ID，不改变执行或发起第二轮', async t => {
+  const { ExecutionService } = require('../../src/main/services/execution.ts');
+  const boundary = require('../../src/main/runtime/codex/process.ts');
+  const { associateProject, readWorkspace } = require('../../src/main/storage/projects.ts');
+  const { createTaskRecord } = require('../../src/main/storage/tasks.ts');
+  await fs.mkdir(path.resolve('.local-validation/m2-01'), { recursive: true });
+  const root = await fs.mkdtemp(path.resolve('.local-validation/m2-01/live-search-history-'));
+  const project = associateProject(root, root).project, calls = [];
+  let handlers;
+  t.mock.method(boundary, 'openExecutionCodex', async (options, events) => {
+    handlers = events;
+    return { identity: { pid: 1234, parentPid: process.pid, createdAt: new Date().toISOString(), executablePath: path.join(root, 'synthetic-codex.exe') },
+      transport: { call: async method => {
+        calls.push(method);
+        if (method === 'thread/start') return { thread: { id: 'live-thread', cwd: root }, cwd: root, model: 'deepseek-v4-flash', modelProvider: 'deepseek', approvalPolicy: 'on-request', approvalsReviewer: 'user', instructionSources: [], sandbox: { type: 'workspaceWrite', writableRoots: [], networkAccess: false } };
+        if (method === 'turn/start') return { turn: { id: 'live-turn' } };
+        if (method === 'thread/read') return { thread: { id: 'live-thread', cwd: root, turns: [{ id: 'live-turn', status: 'inProgress', itemsView: 'full', items: [{ id: 'actual-user-item', type: 'userMessage', content: [{ type: 'text', text: '当前轮中文搜索内容' }] }] }] } };
+        assert.fail(`未预期的协议调用：${method}`);
+      } }, close: async () => {} };
+  });
+  const service = new ExecutionService(root, root, { captureExecution: async () => ({ modelId: 'deepseek-v4-flash', configRevision: 1, credentialRef: randomUUID(), apiKey: 'synthetic-live-search-key' }) });
+  t.after(() => service.close());
+  const task = await service.start({ taskId: randomUUID(), operationId: randomUUID(), projectId: project.projectId, modelId: 'deepseek-v4-flash', configRevision: 1, text: '当前轮中文搜索内容' });
+  const before = readWorkspace(root);
+  await assert.rejects(service.readHistory({ taskId: task.taskId }), /已结束/);
+  const history = await service.readSearchHistory({ taskId: task.taskId });
+  assert.equal(history.turns[0].items[0].itemId, 'actual-user-item');
+  assert.equal(history.turns[0].status, 'inProgress');
+  assert.deepEqual(readWorkspace(root), before);
+  assert.deepEqual(calls, ['thread/start', 'turn/start', 'thread/read']);
+  const foreignId = randomUUID();
+  createTaskRecord(root, { ...task, taskId: foreignId, threadId: 'foreign-thread', turnId: 'foreign-turn' });
+  await assert.rejects(service.readSearchHistory({ taskId: foreignId }), /未决|绑定|核对/);
+  assert.equal(calls.length, 3);
+  handlers.disconnected(new Error('合成断线'));
+  await assert.rejects(service.readSearchHistory({ taskId: task.taskId }), /未决|绑定|核对/);
+  assert.equal(calls.length, 3);
+});
+
+test('活动工具搜索：历史尚无输出时采用同一轮真实事件，命中定位不丢失用户项或重复命令', async t => {
+  const { ExecutionService } = require('../../src/main/services/execution.ts');
+  const { TaskSearchService } = require('../../src/main/services/task-search.ts');
+  const boundary = require('../../src/main/runtime/codex/process.ts');
+  const { associateProject, readWorkspace } = require('../../src/main/storage/projects.ts');
+  await fs.mkdir(path.resolve('.local-validation/m2-01'), { recursive: true });
+  const root = await fs.mkdtemp(path.resolve('.local-validation/m2-01/live-search-output-'));
+  const project = associateProject(root, root).project, calls = [];
+  const binding = { threadId: 'live-thread', turnId: 'live-turn' };
+  const command = { id: 'actual-command', type: 'commandExecution', command: 'node probe.cjs', cwd: root,
+    aggregatedOutput: null, status: 'inProgress', exitCode: null, durationMs: null };
+  let handlers, includeCommand = false;
+  t.mock.method(boundary, 'openExecutionCodex', async (options, events) => {
+    handlers = events;
+    return { identity: { pid: 1234, parentPid: process.pid, createdAt: new Date().toISOString(), executablePath: path.join(root, 'synthetic-codex.exe') },
+      transport: { call: async method => {
+        calls.push(method);
+        if (method === 'thread/start') return { thread: { id: binding.threadId, cwd: root }, cwd: root, model: 'deepseek-v4-flash', modelProvider: 'deepseek', approvalPolicy: 'on-request', approvalsReviewer: 'user', instructionSources: [], sandbox: { type: 'workspaceWrite', writableRoots: [], networkAccess: false } };
+        if (method === 'turn/start') return { turn: { id: binding.turnId } };
+        if (method === 'thread/read') return { thread: { id: binding.threadId, cwd: root, turns: [{ id: binding.turnId, status: 'inProgress', itemsView: 'full', items: [
+          { id: 'actual-user', type: 'userMessage', content: [{ type: 'text', text: '执行探针' }] }, ...(includeCommand ? [command] : []),
+        ] }] } };
+        assert.fail(`搜索不得执行协议动作：${method}`);
+      } }, close: async () => {} };
+  });
+  const service = new ExecutionService(root, root, { captureExecution: async () => ({ modelId: 'deepseek-v4-flash', configRevision: 1, credentialRef: randomUUID(), apiKey: 'synthetic-search-key' }) });
+  const search = new TaskSearchService(root, request => service.readSearchHistory(request));
+  t.after(async () => { await search.pause(); await service.close(); });
+  const task = await service.start({ taskId: randomUUID(), operationId: randomUUID(), projectId: project.projectId, modelId: 'deepseek-v4-flash', configRevision: 1, text: '执行探针' });
+  handlers.notification({ method: 'item/started', params: { ...binding, item: command } });
+  handlers.notification({ method: 'item/commandExecution/outputDelta', params: { ...binding, itemId: command.id, delta: '活动中文标记' } });
+  const before = readWorkspace(root);
+  assert.equal(service.read().items[0].output, '活动中文标记');
+  for (const hasCommand of [false, true]) {
+    includeCommand = hasCommand;
+    await search.rebuild();
+    const result = await search.query({ query: '活动中文标记', scope: 'body', projectId: null, includeArchived: false });
+    assert.equal(result.results.length, 1, '实时已显示的输出必须可搜索，不能只依赖滞后的历史快照');
+    const located = await search.locate({ taskId: task.taskId, ...result.results[0].source });
+    assert.equal(located.source.itemId, command.id);
+    assert.deepEqual(located.history.turns[0].items.map(item => item.itemId), ['actual-user', command.id]);
+    assert.equal(located.history.turns[0].items[1].output, '活动中文标记');
+    assert.equal(result.coverage.coveredTasks, 1);
+  }
+  assert.deepEqual(readWorkspace(root), before);
+  assert.deepEqual(calls.slice(0, 2), ['thread/start', 'turn/start']);
+  assert.ok(calls.slice(2).every(method => method === 'thread/read'));
+});
+
 test('首次发送基线：引擎收到 turn/start 前，原始文件已按同一操作持久化', async t => {
   const { ExecutionService } = require('../../src/main/services/execution.ts');
   const boundary = require('../../src/main/runtime/codex/process.ts');

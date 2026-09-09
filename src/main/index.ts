@@ -1,8 +1,10 @@
 import { ProjectService } from './services/projects';
+import { TaskSearchService } from './services/task-search';
+import { TASK_SEARCH_CHANNEL, TASK_SEARCH_LOCATE_CHANNEL, SEARCH_INDEX_READ_CHANNEL, SEARCH_INDEX_REBUILD_CHANNEL, SEARCH_INDEX_CHANGED_CHANNEL } from '../shared/contracts/search';
 import { createProductTray } from './lifecycle/tray';
 import { readDraft, saveDraft } from './storage/drafts';
 import { DRAFT_READ_CHANNEL, DRAFT_SAVE_CHANNEL } from '../shared/contracts/drafts';
-import { PROJECT_RENAME_CHANNEL, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, WORKSPACE_READ_CHANNEL } from '../shared/contracts/projects';
+import { PROJECT_RENAME_CHANNEL, TASK_RENAME_CHANNEL, TASK_PIN_CHANNEL, TASK_ARCHIVE_CHANNEL, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, WORKSPACE_READ_CHANNEL } from '../shared/contracts/projects';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session } from 'electron';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -44,12 +46,17 @@ function showWindow(): void {
 }
 const models = new ModelService(dataRoot);
 const execution = new ExecutionService(dataRoot, app.isPackaged ? process.resourcesPath : path.join(app.getAppPath(), '.cache'), models, () => {
+  const task = execution.read().task;
+  if (task) search.refreshTask(task.taskId);
   if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.getURL() === mainWindowURL) {
     mainWindow.webContents.send(EXECUTION_CHANGED_CHANNEL);
     mainWindow.webContents.send(WORKSPACE_CHANGED_CHANNEL);
   }
 });
-const projects = new ProjectService(dataRoot, () => execution.read().task);
+const projects = new ProjectService(dataRoot, () => execution.read().task, taskId => execution.prepareTaskArchive(taskId));
+const search = new TaskSearchService(dataRoot, request => execution.readSearchHistory(request), () => {
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.getURL() === mainWindowURL) mainWindow.webContents.send(SEARCH_INDEX_CHANGED_CHANNEL);
+});
 let modelSettingsVisible = false;
 
 function updateExitState(value: ExitSnapshot): void {
@@ -61,7 +68,10 @@ function updateExitState(value: ExitSnapshot): void {
 
 function stopAndExit(requestId: string): void {
   updateExitState({ state: 'stopping', requestId, error: null });
-  void execution.shutdown().then(() => { engineClosed = true; app.quit(); }).catch(error => {
+  // 阻止后续索引读取，但不延迟正在运行的 Agent 收到停止；退出结果等待两个回收都结束。
+  const indexing = search.pause();
+  void execution.shutdown().finally(() => indexing).then(() => { engineClosed = true; app.quit(); }).catch(error => {
+    search.resume();
     updateExitState({ state: 'error', requestId, error: error instanceof Error ? error.message : '退出结果未确认，请核对任务与进程' });
     showWindow();
   });
@@ -194,6 +204,23 @@ if (!app.requestSingleInstanceLock()) {
       requireProductFrame(event, args.length, 1);
       return execution.readHistory(args[0]);
     });
+    ipcMain.handle(TASK_SEARCH_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return search.query(args[0]);
+    });
+    ipcMain.handle(TASK_SEARCH_LOCATE_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return search.locate(args[0]);
+    });
+    ipcMain.handle(SEARCH_INDEX_READ_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 0);
+      search.ensureIndex();
+      return search.getIndexState();
+    });
+    ipcMain.handle(SEARCH_INDEX_REBUILD_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 0);
+      return search.rebuild();
+    });
     ipcMain.handle(RECONCILIATION_READ_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 1);
       return execution.readReconciliation(args[0]);
@@ -225,6 +252,24 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(PROJECT_RENAME_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 1);
       const result = projects.rename(args[0]);
+      mainWindow!.webContents.send(WORKSPACE_CHANGED_CHANNEL);
+      return result;
+    });
+    ipcMain.handle(TASK_ARCHIVE_CHANNEL, async (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      const result = await projects.setTaskArchived(args[0]);
+      mainWindow!.webContents.send(WORKSPACE_CHANGED_CHANNEL);
+      return result;
+    });
+    ipcMain.handle(TASK_PIN_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      const result = projects.setTaskPinned(args[0]);
+      mainWindow!.webContents.send(WORKSPACE_CHANGED_CHANNEL);
+      return result;
+    });
+    ipcMain.handle(TASK_RENAME_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      const result = projects.renameTask(args[0]);
       mainWindow!.webContents.send(WORKSPACE_CHANGED_CHANNEL);
       return result;
     });

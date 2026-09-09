@@ -1,12 +1,25 @@
 import type { ApprovalItem, CommandItem, ExecutionPlan } from '../../shared/contracts/execution';
 import type { HistoryItem } from '../../shared/contracts/history';
 import { ApprovalCard } from './ApprovalCard';
+import { useEffect, useRef } from 'react';
+import type { SearchSource } from '../../shared/contracts/search';
 
 const labels = { running: '进行中', completed: '已结束', failed: '失败', declined: '已拒绝' };
 
-export function ExecutionTimeline({ items, approvals, pending, canAnswer, onAnswer, plan, active, inputText, onOpenOutput }: { items: HistoryItem[]; approvals: ApprovalItem[]; plan?: ExecutionPlan; active: boolean; inputText?: string;
+export function ExecutionTimeline({ items, approvals, pending, canAnswer, onAnswer, plan, active, inputText, onOpenOutput, searchSource }: { items: HistoryItem[]; approvals: ApprovalItem[]; plan?: ExecutionPlan; active: boolean; inputText?: string;
+  searchSource?: SearchSource;
   onOpenOutput?: (item: CommandItem, trigger: HTMLButtonElement) => void;
   pending: Set<string>; canAnswer: boolean; onAnswer: (token: string, decision: 'accept' | 'decline') => void }) {
+  const target = useRef<HTMLDivElement>(null);
+  const isTarget = (item: HistoryItem) => !!searchSource && item.threadId === searchSource.threadId && item.turnId === searchSource.turnId && item.itemId === searchSource.itemId;
+  useEffect(() => {
+    if (!searchSource || !target.current) return;
+    const frame = requestAnimationFrame(() => {
+      target.current?.querySelectorAll('details').forEach(details => { details.open = true; });
+      target.current?.scrollIntoView({ block: 'center' }); target.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [searchSource]);
   const card = (approval: ApprovalItem) => <ApprovalCard key={approval.approvalToken} approval={approval}
     item={items.find(item => item.itemId === approval.itemId && item.kind !== 'userMessage') as Exclude<HistoryItem, { kind: 'userMessage' }> | undefined} disabled={!canAnswer || pending.has(approval.approvalToken)} onAnswer={onAnswer} />;
   return <section className="execution-timeline" aria-label="执行过程">
@@ -18,7 +31,8 @@ export function ExecutionTimeline({ items, approvals, pending, canAnswer, onAnsw
       <ol>{plan.plan.map((step, index) => <li key={index}><span>{step.step}</span> <span className="muted">· {step.status === 'completed' ? '已完成'
         : step.status === 'pending' ? '待执行' : active ? '进行中' : '最后记录：进行中'}</span></li>)}</ol>
     </details>}
-    {items.map(item => <div key={item.itemId}>{item.kind === 'userMessage'
+    {items.map(item => <div key={item.itemId} ref={isTarget(item) ? target : undefined} tabIndex={isTarget(item) ? -1 : undefined}
+      className={isTarget(item) ? 'search-hit-target' : undefined} data-history-item={item.itemId} data-history-turn={item.turnId} data-history-thread={item.threadId}>{item.kind === 'userMessage'
       ? <section className="execution-message execution-user-message" aria-label="已提交的要求">{item.text}</section>
       : item.kind === 'message'
       ? <p className="execution-message" key={item.itemId}>{item.text}</p>

@@ -29,3 +29,22 @@ test('项目会话状态：只有本实例执行拥有者提供实时投影，�
   owned = null;
   assert.ok((await service.read()).tasks.every(value => value.executionState === 'reconciling'));
 });
+
+
+test('活动会话改名：旧执行快照不能覆盖新标题，组织不更新活动时间或轮次', async () => {
+  const { ProjectService } = require('../../src/main/services/projects.ts');
+  const { associateProject } = require('../../src/main/storage/projects.ts');
+  const { createTaskRecord } = require('../../src/main/storage/tasks.ts');
+  const root = await fs.mkdtemp(path.resolve('.local-validation/m1-04/rename-projection-'));
+  const project = associateProject(root, root).project, now = new Date().toISOString();
+  const current = { taskId: randomUUID(), projectId: project.projectId, directory: root, title: '引擎已持有的旧名称',
+    executionState: 'running', threadId: 'owned-thread', turnId: 'owned-turn', lastActivityAt: now, observedAt: now };
+  createTaskRecord(root, current);
+  const service = new ProjectService(root, () => current);
+  const saved = service.renameTask({ operationId: randomUUID(), taskId: current.taskId, title: '产品中的新名称', expectedRevision: 0 });
+  assert.deepEqual((await service.read()).tasks, [saved]);
+  const pinned = service.setTaskPinned({ operationId: randomUUID(), taskId: current.taskId, expectedRevision: 1, pinned: true });
+  assert.deepEqual((await service.read()).tasks, [pinned]);
+  assert.deepEqual({ ...pinned, organizationRevision: 1, pinnedAt: null }, saved);
+  assert.deepEqual({ ...saved, title: current.title, organizationRevision: undefined }, { ...current, archivedAt: null, pinnedAt: null, organizationRevision: undefined });
+});
