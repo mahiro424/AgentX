@@ -6,6 +6,34 @@ const { once } = require('node:events');
 
 const root = path.resolve(__dirname, '../..');
 const artifacts = path.join(root, '.local-validation/foundation');
+const diagnosticReports = new WeakMap();
+
+// AXUI 临时诊断：仅测合成测试窗口事件循环与点击到达，不输出正文或凭据。
+async function observeTestWindow(app, page) {
+  const install = () => {
+    const metric = { maximumGap: 0, clicks: 0, elapsed: 0 }, started = Date.now(); let last = started;
+    const timer = setInterval(() => { const now = Date.now(); metric.maximumGap = Math.max(metric.maximumGap, now - last); metric.elapsed = now - started; last = now; }, 100);
+    if (timer.unref) timer.unref();
+    globalThis.axUiMetric = metric;
+    if (typeof document !== 'undefined') document.addEventListener('click', () => metric.clicks++, true);
+  };
+  await app.evaluate(install); await page.evaluate(install);
+  const report = async () => {
+    diagnosticReports.delete(app);
+    let timer;
+    try {
+      const values = await Promise.race([Promise.all([
+        app.evaluate(() => globalThis.axUiMetric),
+        page.evaluate(() => ({ ...globalThis.axUiMetric, focused: document.hasFocus(), visibility: document.visibilityState })),
+      ]), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('读取超时')), 2000); })]);
+      console.log('AXUI ' + JSON.stringify({ main: values[0], renderer: values[1] }));
+    } catch { console.log('AXUI 诊断读取未完成'); }
+    finally { clearTimeout(timer); }
+  };
+  diagnosticReports.set(app, report);
+  const close = app.close.bind(app);
+  app.close = async () => { if (diagnosticReports.has(app)) await report(); return close(); };
+}
 
 async function launch(existingData) {
   await fs.mkdir(artifacts, { recursive: true });
@@ -38,6 +66,7 @@ async function launch(existingData) {
     });
     if (!existingData) await page.waitForFunction(() => innerWidth === 1280);
     console.log(`桌面测试尺寸：${JSON.stringify(geometry)}`);
+    if (process.env.AGENTX_CI_OBSERVE === '1') await observeTestWindow(app, page);
     return { app, page, data };
   } catch (error) {
     await app.close();
@@ -47,6 +76,7 @@ async function launch(existingData) {
 
 async function crashTestApp(app) {
   if (app.process().exitCode !== null) return;
+  await diagnosticReports.get(app)?.();
   const exited = once(app.process(), 'exit');
   // 仅销毁调用方测试创建的合成未决/损坏实例，不计为产品正常退出通过。
   await app.evaluate(({ app }) => { setImmediate(() => app.exit(0)); });
