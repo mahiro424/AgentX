@@ -18,17 +18,27 @@ async function observeTestWindow(app, page) {
     if (typeof document !== 'undefined') document.addEventListener('click', () => metric.clicks++, true);
   };
   await app.evaluate(install); await page.evaluate(install);
+  const cdp = await page.context().newCDPSession(page);
+  let previous = Date.now(), maximumParentGap = 0;
+  const heartbeat = setInterval(() => { const now = Date.now(); maximumParentGap = Math.max(maximumParentGap, now - previous); previous = now; }, 100);
+  heartbeat.unref();
   const report = async () => {
     diagnosticReports.delete(app);
-    let timer;
-    try {
-      const values = await Promise.race([Promise.all([
-        app.evaluate(() => globalThis.axUiMetric),
-        page.evaluate(() => ({ ...globalThis.axUiMetric, focused: document.hasFocus(), visibility: document.visibilityState })),
-      ]), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('读取超时')), 2000); })]);
-      console.log('AXUI ' + JSON.stringify({ main: values[0], renderer: values[1] }));
-    } catch { console.log('AXUI 诊断读取未完成'); }
-    finally { clearTimeout(timer); }
+    const read = async (name, pending) => {
+      let timer; const started = Date.now();
+      try {
+        const value = await Promise.race([pending, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 2000); })]);
+        console.log('AXUI ' + JSON.stringify({ name, elapsed: Date.now() - started, value }));
+      } catch (error) { console.log('AXUI ' + JSON.stringify({ name, elapsed: Date.now() - started, error: error.message === 'timeout' ? 'timeout' : 'protocol-error' })); }
+      finally { clearTimeout(timer); }
+    };
+    await Promise.all([
+      read('main', app.evaluate(({ BrowserWindow }) => ({ ...globalThis.axUiMetric, visible: BrowserWindow.getAllWindows()[0]?.isVisible(), focused: BrowserWindow.getAllWindows()[0]?.isFocused() }))),
+      read('renderer', page.evaluate(() => ({ ...globalThis.axUiMetric, focused: document.hasFocus(), visibility: document.visibilityState }))),
+      read('target', cdp.send('Target.getTargetInfo').then(() => 'responded')),
+    ]);
+    clearInterval(heartbeat);
+    console.log('AXUI ' + JSON.stringify({ name: 'parent', maximumGap: maximumParentGap, childExited: app.process().exitCode !== null }));
   };
   diagnosticReports.set(app, report);
   const close = app.close.bind(app);
