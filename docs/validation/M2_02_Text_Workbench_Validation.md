@@ -36,7 +36,10 @@
 | 真实 Electron 输入、“最近”分组、置顶与取消置顶 | 新增用例通过；基础外框、项目、独立任务合跑 33/33，通过修正后的旧断言 |
 | 深浅色、宽窄窗口 | 4 个真实窗口、6 张截图；窄窗按既有抽屉呈现结果，Escape 关闭回到触发处，关闭后输入与发送按钮完整可见；没有用被遮挡输入的焦点冒充可操作 |
 | 原目录 Windows 打包 | 最终 `npm run package` 已成功更新 `out/AgentX-win32-x64`，实际启动及完整性核对通过；失败构建已由串行完整构建替换 |
-| CI / PR / 合入 | 待执行；#22 不关闭，不进入依赖它的 #23 |
+| Windows CI | 代码提交 `89ddb05`：安装、类型检查、实际打包及全量 240/240 通过，0 fail / 0 cancelled / 0 skipped；不调用真实模型 |
+| PR / 合入 | 草稿 PR #32，目标 `m2`；当前仅第一功能检查点，不合并、不关闭 #22，不进入依赖它的 #23；master SHA 保持 `d266bf905f3e7285de4a3e9a415558cca6c0b21d` |
+
+正式证据：[Windows CI 运行](https://github.com/mahiro424/AgentX/actions/runs/34333698357)、[连续交付草稿 PR #32](https://github.com/mahiro424/AgentX/pull/32)。文档门禁亦通过；后续提交的检查状态以 PR 为准。
 
 原目录最终 `app.asar` SHA-256：`2e3257c80565eaf488eb60905bb2213032ff2977cbc625c824b95e9a59b10133`。
 
