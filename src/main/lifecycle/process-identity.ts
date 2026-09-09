@@ -29,12 +29,17 @@ export async function readProcessIdentity(pid: number): Promise<ProcessIdentity 
   if (process.platform !== 'win32') throw new Error('当前进程身份核验仅支持 Windows');
   const executable = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   const script = `$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); ` +
+    `[Console]::Error.WriteLine('AXP:started'); ` +
     `$p=Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId=${pid}' -ErrorAction Stop; ` +
-    `if(!$p){'null'}else{@{pid=[int64]$p.ProcessId;parentPid=[int64]$p.ParentProcessId;createdAt=$p.CreationDate.ToUniversalTime().ToString('o');executablePath=$p.ExecutablePath}|ConvertTo-Json -Compress}`;
+    `[Console]::Error.WriteLine('AXP:queried'); ` +
+    `if(!$p){'null'}else{$value=@{pid=[int64]$p.ProcessId;parentPid=[int64]$p.ParentProcessId;createdAt=$p.CreationDate.ToUniversalTime().ToString('o');executablePath=$p.ExecutablePath}; ` +
+    `[Console]::Error.WriteLine('AXP:formatted'); $value|ConvertTo-Json -Compress}; [Console]::Error.WriteLine('AXP:done')`;
   const output = await new Promise<string>((resolve, reject) => {
     execFile(executable, ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
-      { windowsHide: true, shell: false, encoding: 'utf8', timeout: 10000, maxBuffer: 65536 }, (error, stdout) => {
-        if (error) reject(new Error(`无法读取进程身份，需核对（查询错误码 ${error.code ?? (error.killed ? '10 秒超时终止' : '未知')}${error.signal ? `；信号 ${error.signal}` : ''}）`));
+      { windowsHide: true, shell: false, encoding: 'utf8', timeout: 10000, maxBuffer: 65536 }, (error, stdout, stderr) => {
+        // AXP 临时探针：只返回固定阶段，不复制进程原始错误或输出。
+        const phase = typeof stderr === 'string' ? [...stderr.matchAll(/^AXP:(started|queried|formatted|done)\r?$/gm)].at(-1)?.[1] : undefined;
+        if (error) reject(new Error(`无法读取进程身份，需核对（查询错误码 ${error.code ?? (error.killed ? '10 秒超时终止' : '未知')}${error.signal ? `；信号 ${error.signal}` : ''}${phase ? `；阶段 ${phase}` : ''}）`));
         else resolve(stdout);
       });
   });
