@@ -110,6 +110,8 @@
 - 075/076：`96d5742` 的 Windows PR [34365115203](https://github.com/mahiro424/AgentX/actions/runs/34365115203) 与 push [34365109677](https://github.com/mahiro424/AgentX/actions/runs/34365109677) 未通过；前者为随包 CLI 测试整体 45 秒超时（287 通过、1 取消），后者第一条 PowerShell read 35 秒超时、无回执。不是 GUI 退出测试，也没有解析失败证据；文档 CI 通过不替代桌面 CI。
 - 077：增加仅测试侧的 shell-enter/before-exe/after-exe 阶段观测和子进程 AbortSignal，保持原 35/45 秒限时、不扩大环境白名单；同名拒绝断言收紧为实际 EEXIST，不再把任意超时也算同名保护成功。本地定向 1/1，三次命令均约 1 秒；等待 CI 分阶段证据，不先修改产品运行时或直接重跑碰运气。
 - 079/080：观测提交 `8fcdbba` 的 PR/push CI 均在 shell-enter/before-exe 后 35 秒无输出超时，没有 after-exe；排除脚本尚未开始和 GUI 清理假设，但仍不能仅凭此断定 CLI 已开始。081 单变量将测试 PowerShell 的 PSModulePath 限定到系统内置 Modules，检验 Out-String 模块发现阻塞假设；不引入 PATH Node、用户插件/模块或产品权限变化。本地 1/1，CI 结果待核验。
+- 082/083：`12796d8` 的 Windows PR [34367559640](https://github.com/mahiro424/AgentX/actions/runs/34367559640) 仍失败。首条 read 已成功，但耗时约 27.8 秒，并输出 Preparing modules for first use；下一条 write 被父测试 45 秒限时取消。该证据支持继续检查模块初始化开销，不等于证明解析器本身耗时或产品命令失败。
+- 084/085：测试侧关闭模块自动加载，并以系统绝对路径显式导入 Out-String 所属的 Microsoft.PowerShell.Utility；保留已有环境白名单、35 秒命令限时、45 秒整体限时及实际 EEXIST 断言。两次本地定向均 1/1，通过真实随包 Electron 读写；单条约 0.9 秒，初始化进度记录不再出现。尚需同提交 Windows CI 证明，不以本地结果关闭工单。
 
 ### 最终状态覆盖
 
