@@ -20,3 +20,12 @@ test('pdfImage：真实图片解码、缩放、错误及旧版本；本地查看
  assert.ok(await preview.getByRole('note').filter({hasText:'保留上次成功读取的图片'}).isVisible());assert.equal(await image.evaluate(img=>img.naturalWidth),320);
  assert.equal(await preview.getByRole('button',{name:'本机打开',exact:true}).isEnabled(),false);
 });
+
+test('图片解码失败：头部尺寸正常但内容损坏时展示原因，保留草稿且不显示可打开成功',{timeout:30000},async t=>{
+ const data=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'agentx-image-decode-'))),filename=path.join(data,'损坏.png');
+ const header=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwC','base64');await fs.writeFile(filename,header);
+ const {app,page}=await launch(data);t.after(()=>app.close());await app.evaluate(({dialog},filename)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[filename]});},filename);
+ await page.getByRole('button',{name:'添加材料',exact:true}).click();await page.getByRole('menuitem',{name:'添加文件',exact:true}).click();await page.getByRole('status').filter({hasText:'草稿已保存'}).waitFor();
+ await page.getByRole('textbox',{name:'任务要求'}).fill('保留当前草稿');await page.getByRole('button',{name:'预览材料：损坏.png'}).click();
+ const preview=page.getByRole('region',{name:'只读文件预览'});await preview.getByRole('alert').filter({hasText:'图片解码失败'}).waitFor();assert.equal(await preview.getByRole('button',{name:'本机打开',exact:true}).isEnabled(),false);assert.equal(await page.getByRole('textbox',{name:'任务要求'}).inputValue(),'保留当前草稿');
+});

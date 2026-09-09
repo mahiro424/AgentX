@@ -20,6 +20,8 @@ async function query(pid,mode){
  let runtime;try{
   runtime=await require('../src/main/runtime/codex/process.ts').openCodex({...prepared,resourcesDirectory:path.resolve('.cache'),workingDirectory:root},{notification(){},request(){throw new Error('探针禁止审批');},disconnected(){}});
   await verifyExecutionConfiguration(runtime.transport,root);
+  const started=Date.now();try{const identity=await require('../src/main/lifecycle/process-identity.ts').readProcessIdentity(runtime.pid);console.log(JSON.stringify({target:'codex',mode:'exact-product-api',elapsed:Date.now()-started,matched:identity?.pid===runtime.pid}));}catch(error){console.log(JSON.stringify({target:'codex',mode:'exact-product-api',elapsed:Date.now()-started,error:error.message}));}
+
   for(const mode of['inherited','selected-properties','dotnet','explicit-module','clean-module-path'])await query(runtime.pid,mode);
   await query(process.pid,'inherited');
  }finally{if(runtime)await runtime.close();await new Promise(resolve=>trap.close(resolve));}

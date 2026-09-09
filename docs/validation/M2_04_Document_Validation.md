@@ -73,3 +73,24 @@ PDF 截图：[浅色常规](images/m2-04/pdf-light-1280.png)、[浅色紧凑](im
 - 088：同一真实 Flash 文档任务中执行循环 DOCX 生成，观察实际 office-cli 进程及创建时间后点击停止；收到 interrupted，所属 CLI 已退出，5 秒内没有继续写入，旧文档与人工文件哈希保持。实际留下 4 个 DOCX 文件，结果面板明确“已中断/仅显示已知变化”，不称任务全部完成。
 - 089/090：真实 AES-256 合成 PDF（独立解密核验 fixture）明确密码阻断；真实独占 DOCX 文件锁读取失败、不写伪输出，解除后重试实际读取。各 1/1；Python 仅生成测试 fixture，不是产品/CI 运行依赖。
 - 086：PDF 检查点远程 CI 34383517197 为 307/308，仅既有引擎身份核验失败。新诊断确认是 10 秒 SIGTERM，不是缺少 PDF 依赖。暂加独立、无密钥、只读 CI 差分探针，比较默认环境、显式系统模块与去除继承模块路径；探针不是可忽略原失败的替代门禁。
+
+
+## 逐状态核验（尚待 CI 闭环）
+
+| 状态 | 实际覆盖 | 尚未声称的能力 |
+| --- | --- | --- |
+| readingDocument | DOCX 中文段落、PDF 中文逐页/CMap，实际 CLI/PID 与原件哈希；075 Flash 确实读取材料 | 不承诺还原 PDF 阅读顺序或完整 Word 布局 |
+| generating | TXT/DOCX 新文件，CLI 同名 EEXIST；Flash 生成初稿与新版本 | 无 PDF 生成/宏执行 |
+| validating | 081 独立 ZIP/XML/哈希、事实与原始 PDF 页内标记；原件/人工文件/首版保持 | 工具退出 0 不等于业务验收 |
+| unsupportedDocument | 损坏/无文字/超页/大小/解压上限、真实密码 PDF、独占 DOCX 读取失败与重试 | DOCX 加密类别目前按复合容器头拒绝；不承诺密码解密 |
+| partialDocument | 088 真实 DOCX 循环中断，所属 CLI 消失、无后写、部分文件及中断说明；既有 failed 结果回归 | 不声称撤销、通用 checkpoint 恢复或全部产物已验证 |
+| document | 真段落、缩放、授权打开/定位、来源与旧视图；实包与现场阅读 | 不伪造 Word 分页和编辑 |
+| pdfImage | 离线 PDF 页面/缩略图/缩放；本地图片尺寸、Chromium 解码、错误/版本保护 | 无 OCR/Flash 识图，BMP 尚未开放预览 |
+| revision | 075 同 task/thread 新 turn、重开材料/历史/结果恢复；081 独立核对 | 未决状态不自动重放 |
+| compact | 深浅色、1280×820/960×640、键盘标签/关闭焦点；沿用已验收外框和组合输入规则 | 真实系统 DPI/IME 沿用既有人工验收，不冒称重新人工检查 |
+
+现场证据：[文档初稿预览](images/m2-04/document-live-preview.png)、[文档停止后的部分文件](images/m2-04/document-live-stopped.png)、[脱敏轮次记录](images/m2-04/document-live-summary.json)、[独立核验](images/m2-04/document-independent.json)。095 另外验证“有效图片头部但损坏内容”的真实 Chromium 解码错误，保留草稿并禁用本机打开，1/1。
+
+图片检查点已更新原 out 目录，源提交 `aa7e1c11b78a0e50cc09cbc091d9ae38a23678d6`，旧 PDF 包保留在同级 `AgentX-win32-x64-before-20260910-014835`；当前 app.asar SHA-256 为 `3caaa92bc96090bf19fbabe38639a6ab0bed3f964f3859279757dc197f0813bc`。第一次文档检查在截图尚未暂存时报告未入库引用，暂存图片后重跑为 43 份文档/314 个本地链接零错误，没有删除引用规避检查。
+
+- 093/096：独立 CI 差分显示 Node 与相同配置 Codex 的 CIM 查询均可完成（首次约 1.7–3.2 秒，后续约 0.3–0.5 秒），不能据此断定 PSModulePath 污染或某个属性必然失效，也不能把预热差当修复。继续收窄到产品原函数和原测试上下文，不改变产品查询边界。
