@@ -18,7 +18,13 @@ test('打包表格命令：真实 Windows PowerShell 仅靠随包 Electron 运�
   const shellDirectory = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0');
   const run = async args => {
     const started = Date.now(); t.diagnostic(`表格命令 ${args[0]}：开始`);
-    const script = `[Console]::Error.WriteLine('shell-enter');$ErrorActionPreference='Stop';$PSModuleAutoLoadingPreference='None';Import-Module ${quoted(path.join(shellDirectory, 'Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1'))};[Console]::Error.WriteLine('utility-ready');[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);$env:ELECTRON_RUN_AS_NODE='1';[Console]::Error.WriteLine('before-exe'); & ${[exe, '--max-old-space-size=192', cli, ...args].map(quoted).join(' ')} | Out-String;$code=$LASTEXITCODE;[Console]::Error.WriteLine('after-exe');exit $code`;
+    // 最小环境中显式加载系统模块，避免 CI 冷启动的模块发现开销混入工具限时。
+    const script = [
+      "$ErrorActionPreference='Stop'", "$PSModuleAutoLoadingPreference='None'",
+      `Import-Module ${quoted(path.join(shellDirectory, 'Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1'))}`,
+      '[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)', "$env:ELECTRON_RUN_AS_NODE='1'",
+      `& ${[exe, '--max-old-space-size=192', cli, ...args].map(quoted).join(' ')} | Out-String`, 'exit $LASTEXITCODE',
+    ].join(';');
     try {
       const result = await promisify(execFile)(path.join(shellDirectory, 'powershell.exe'),
         ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],

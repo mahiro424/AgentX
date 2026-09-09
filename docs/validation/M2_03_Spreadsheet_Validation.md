@@ -112,6 +112,8 @@
 - 079/080：观测提交 `8fcdbba` 的 PR/push CI 均在 shell-enter/before-exe 后 35 秒无输出超时，没有 after-exe；排除脚本尚未开始和 GUI 清理假设，但仍不能仅凭此断定 CLI 已开始。081 单变量将测试 PowerShell 的 PSModulePath 限定到系统内置 Modules，检验 Out-String 模块发现阻塞假设；不引入 PATH Node、用户插件/模块或产品权限变化。本地 1/1，CI 结果待核验。
 - 082/083：`12796d8` 的 Windows PR [34367559640](https://github.com/mahiro424/AgentX/actions/runs/34367559640) 仍失败。首条 read 已成功，但耗时约 27.8 秒，并输出 Preparing modules for first use；下一条 write 被父测试 45 秒限时取消。该证据支持继续检查模块初始化开销，不等于证明解析器本身耗时或产品命令失败。
 - 084/085：测试侧关闭模块自动加载，并以系统绝对路径显式导入 Out-String 所属的 Microsoft.PowerShell.Utility；保留已有环境白名单、35 秒命令限时、45 秒整体限时及实际 EEXIST 断言。两次本地定向均 1/1，通过真实随包 Electron 读写；单条约 0.9 秒，初始化进度记录不再出现。尚需同提交 Windows CI 证明，不以本地结果关闭工单。
+- 086/087：`d3a820f` 的 Windows PR [34370073001](https://github.com/mahiro424/AgentX/actions/runs/34370073001) 与 push [34370067895](https://github.com/mahiro424/AgentX/actions/runs/34370067895) 均通过，文档检查通过。PR 完整回归 288/288，无失败/取消/跳过；read/write/同名拒绝分别约 466/458/444 ms，实际 EEXIST 不变。证据将本次 CI 慢启动定位到最小测试环境的模块发现/初始化路径，不宣称所有用户默认 shell 的冷启动耗时已验证，也不更改产品执行权限。
+- 088/089：本地对照恢复模块自动发现后，真实读取/生成/冲突仍 1/1 通过，重现首次模块初始化记录；随后清理测试中的临时阶段标记，保留有界失败诊断与命令耗时，定向 1/1 通过。文档检查 42 项/296 个链接、72 条 M1 和 48 条 M2 场景通过；最终清理提交的 CI 另行核对，未改运行时代码或原目录包。
 
 ### 最终状态覆盖
 
