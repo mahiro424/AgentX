@@ -40,9 +40,13 @@ jobs:
     name: 临时进程身份差分诊断
     if: github.head_ref == 'm2-04' || github.ref == 'refs/heads/m2-04'
     runs-on: windows-latest
-    timeout-minutes: 3
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - run: node scripts/diagnose-windows-process.cjs
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.22.3'
+      - run: npm ci
+      - run: node scripts/diagnose-windows-process.cjs --codex
