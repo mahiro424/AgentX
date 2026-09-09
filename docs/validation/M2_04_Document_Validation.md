@@ -61,3 +61,5 @@ PDF 采用 pdfjs-dist 6.3.289：有界解析进程提取文字，Chromium 绘制
 PDF 截图：[浅色常规](images/m2-04/pdf-light-1280.png)、[浅色紧凑](images/m2-04/pdf-light-960.png)、[深色常规](images/m2-04/pdf-dark-1280.png)、[深色紧凑](images/m2-04/pdf-dark-960.png)、[损坏后的旧页面](images/m2-04/pdf-stale-dark-960.png)，[尺寸与页画布记录](images/m2-04/pdf-geometry.json)。实际 PDF 专用 Node 资源为 5,418,961 字节，应用 asar 为 9,111,166 字节；相对 DOCX 检查点二者合计增加约 10.1 MiB，不等同整个安装包增量的压缩大小。专用资源目录不含 `.node` 模块。
 
 当前 DOCX 检查点已更新原目录包；PDF 实包仅在独立临时目录验证，尚待最终更新记录。DOCX/PDF 真实 Flash 文档任务、图片预览、#24 全矩阵与远程 CI 门禁仍未完成。[PR #34](https://github.com/mahiro424/AgentX/pull/34) 保持草稿，不合并、不关闭本工单。
+
+- 071：PDF 功能提交 `81f5ced8eea5f36a55e98fa4d5862b0724de8778` 的实包已保护性更新到原 `out/AgentX-win32-x64`，旧 DOCX 包保留为 `AgentX-win32-x64-before-20260910-012931`。原目录 DOCX/PDF 真实 Electron 复验 4/4；app.asar SHA-256 为 `46eb10516f07b35531b3c0c30461afed9d17435caf8e9c78447e99193cb62f41`。真实 Flash 与图片状态仍继续验收，PR 保持草稿。
