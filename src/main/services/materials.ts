@@ -20,24 +20,25 @@ export function pastedImageExtension(bytes: Buffer, mime: string): string {
   throw new Error('剪贴板图片格式无效；请保存为 PNG、JPEG 或 WebP 后添加');
 }
 
-async function inspect(filename: string): Promise<Omit<MaterialRecord, 'materialId'>> {
+async function inspect(filename: string): Promise<{ record: Omit<MaterialRecord, 'materialId'>; text: string | null }> {
+  const result = (record: Omit<MaterialRecord, 'materialId'>, text: string | null = null) => ({ record, text });
   let record: Omit<MaterialRecord, 'materialId'> = { path: filename, name: path.basename(filename), kind: 'unsupported',
     status: 'unreadable', message: '材料无法读取，请核对访问权限', version: null };
   try {
     const canonical = await fs.realpath(filename);
     const initial = await fs.lstat(canonical, { bigint: true });
     record = { ...record, path: canonical, name: path.basename(canonical) };
-    if (initial.isSymbolicLink() || (!initial.isFile() && !initial.isDirectory())) return record;
-    if (initial.isDirectory()) return { ...record, kind: 'directory', status: 'ready', message: '目录引用；不会自动遍历全部内容',
-      version: { identity: identity(initial), size: 0, sha256: null } };
+    if (initial.isSymbolicLink() || (!initial.isFile() && !initial.isDirectory())) return result(record);
+    if (initial.isDirectory()) return result({ ...record, kind: 'directory', status: 'ready', message: '目录引用；不会自动遍历全部内容',
+      version: { identity: identity(initial), size: 0, sha256: null } });
     const extension = path.extname(canonical).toLowerCase();
     const kind = ['.txt', '.md', '.markdown'].includes(extension) ? 'text' : ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'].includes(extension) ? 'image' : 'unsupported';
     record = { ...record, kind };
-    if (kind === 'unsupported') return { ...record, status: 'unsupported', message: '当前仅开放 TXT / Markdown；此格式暂不能发送' };
-    if (initial.size > BigInt(kind === 'image' ? MATERIAL_LIMITS.imageBytes : MATERIAL_LIMITS.textBytes)) return { ...record, message: `材料超限：${kind === 'image' ? '图片最多 8 MiB' : '文本最多 1 MiB'}` };
+    if (kind === 'unsupported') return result({ ...record, status: 'unsupported', message: '当前仅开放 TXT / Markdown；此格式暂不能发送' });
+    if (initial.size > BigInt(kind === 'image' ? MATERIAL_LIMITS.imageBytes : MATERIAL_LIMITS.textBytes)) return result({ ...record, message: `材料超限：${kind === 'image' ? '图片最多 8 MiB' : '文本最多 1 MiB'}` });
     const handle = await fs.open(canonical, 'r');
     try {
-      if (identity(await handle.stat({ bigint: true })) !== identity(initial)) return { ...record, status: 'changed', message: '材料在核验期间发生变化，请重查' };
+      if (identity(await handle.stat({ bigint: true })) !== identity(initial)) return result({ ...record, status: 'changed', message: '材料在核验期间发生变化，请重查' });
       const buffer = Buffer.alloc(Number(initial.size) + 1);
       let length = 0;
       while (length < buffer.length) {
@@ -47,24 +48,32 @@ async function inspect(filename: string): Promise<Omit<MaterialRecord, 'material
       }
       if (length !== Number(initial.size) || identity(initial) !== identity(await handle.stat({ bigint: true })) ||
         await fs.realpath(filename) !== canonical || identity(initial) !== identity(await fs.lstat(canonical, { bigint: true }))) {
-        return { ...record, status: 'changed', message: '材料在核验期间发生变化，请重查' };
+        return result({ ...record, status: 'changed', message: '材料在核验期间发生变化，请重查' });
       }
       const bytes = buffer.subarray(0, length);
+      let text: string | null = null;
       if (kind === 'text') {
         try {
           if (bytes.includes(0)) throw new Error('binary');
-          new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-        } catch { return { ...record, message: '文本不是有效 UTF-8，请转换编码后重新添加' }; }
+          text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+        } catch { return result({ ...record, message: '文本不是有效 UTF-8，请转换编码后重新添加' }); }
       }
-      return { ...record, status: kind === 'image' ? 'blockedImage' : 'ready',
+      return result({ ...record, status: kind === 'image' ? 'blockedImage' : 'ready',
         message: kind === 'image' ? '图像能力尚未验证，含图发送已阻断' : '可读取；尚不代表 Agent 已读取',
-        version: { identity: identity(initial), size: length, sha256: createHash('sha256').update(bytes).digest('hex') } };
+        version: { identity: identity(initial), size: length, sha256: createHash('sha256').update(bytes).digest('hex') } }, text);
     } finally { await handle.close(); }
   } catch (cause) {
     const code = (cause as NodeJS.ErrnoException).code;
-    return { ...record, status: code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unreadable',
-      message: code === 'ENOENT' || code === 'ENOTDIR' ? '材料已移动或删除，请恢复后重查' : '材料无法读取，请核对权限或磁盘连接' };
+    return result({ ...record, status: code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unreadable',
+      message: code === 'ENOENT' || code === 'ENOTDIR' ? '材料已移动或删除，请恢复后重查' : '材料无法读取，请核对权限或磁盘连接' });
   }
+}
+
+function compareMaterial(record: MaterialRecord, current: Omit<MaterialRecord, 'materialId'>): MaterialRecord {
+  if (current.path !== record.path || JSON.stringify(current.version) !== JSON.stringify(record.version)) return { ...record,
+    status: current.status === 'missing' || current.status === 'unreadable' ? current.status : 'changed',
+    message: current.status === 'missing' || current.status === 'unreadable' ? current.message : '材料内容或身份已变化；重查将采用新版本，原引用保留' };
+  return { ...record, status: current.status, message: current.message };
 }
 
 export class MaterialService {
@@ -109,7 +118,7 @@ export class MaterialService {
     if (!Array.isArray(paths) || paths.length > MATERIAL_LIMITS.count || paths.some(value => !validPath(value))) throw new Error('材料路径无效，单次最多添加 16 项');
     const result: MaterialRecord[] = [];
     for (const filename of new Set(paths as string[])) {
-      const item = storeMaterial(this.root, { ...await inspect(filename), materialId: randomUUID() });
+      const item = storeMaterial(this.root, { ...(await inspect(filename)).record, materialId: randomUUID() });
       if (!result.some(previous => previous.path === item.path || (item.version && previous.version?.identity === item.version.identity))) result.push(item);
     }
     return result;
@@ -117,14 +126,14 @@ export class MaterialService {
 
   async check(ids: unknown): Promise<MaterialRecord[]> {
     const records = readMaterials(this.root, ids);
-    return Promise.all(records.map(async record => {
-      const current = await inspect(record.path);
-      if (current.path !== record.path || JSON.stringify(current.version) !== JSON.stringify(record.version)) {
-        return { ...record, status: current.status === 'missing' || current.status === 'unreadable' ? current.status : 'changed',
-          message: current.status === 'missing' || current.status === 'unreadable' ? current.message : '材料内容或身份已变化；重查将采用新版本，原引用保留' } as MaterialRecord;
-      }
-      return { ...record, status: current.status, message: current.message };
-    }));
+    return Promise.all(records.map(async record => compareMaterial(record, (await inspect(record.path)).record)));
+  }
+
+  async preview(id: string) {
+    const [record] = readMaterials(this.root, [id]), observed = await inspect(record.path);
+    const material = compareMaterial(record, observed.record);
+    return { material, currentVersion: observed.record.version, text: material.status === 'ready' ? observed.text : null,
+      observedAt: new Date().toISOString() };
   }
 
   async refresh(id: unknown): Promise<MaterialRecord> {

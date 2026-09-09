@@ -18,6 +18,7 @@ import { useHistory } from './workbench/useHistory';
 import { HistoryTimeline } from './workbench/HistoryTimeline';
 import { ReconciliationNotice } from './workbench/ReconciliationNotice';
 import { ResultsPanel } from './workbench/ResultsPanel';
+import { FilePreviewPanel, useFilePreviews } from './workbench/FilePreviewPanel';
 import { OutputPanel } from './workbench/OutputPanel';
 import type { CommandItem } from '../shared/contracts/execution';
 import { useDraft } from './workbench/useDraft';
@@ -96,10 +97,11 @@ function App() {
       item.threadId === outputSelection.threadId && item.turnId === outputSelection.turnId && item.itemId === outputSelection.itemId) : undefined;
   function openOutput(item: CommandItem, trigger: HTMLButtonElement) {
     if (!workspace.selectedTaskId) return;
-    outputTrigger.current = trigger; setResultsTask(null);
+    outputTrigger.current = trigger; setResultsTask(null); previews.hide();
     setOutputSelection({ taskId: workspace.selectedTaskId, threadId: item.threadId, turnId: item.turnId, itemId: item.itemId });
   }
   const draftState = useDraft({ projectId: workspace.selectedProjectId, taskId: workspace.selectedTaskId });
+  const previews = useFilePreviews({ projectId: workspace.selectedProjectId, taskId: workspace.selectedTaskId });
   const draft = draftState.text, setDraft = draftState.setText;
   const materialActions = useMaterialActions(draftState.latestMaterials, values => { draftRevision.current++; draftState.setMaterials(values); });
   const materialsBlocked = materialActions.busy || draftState.checking ? '正在核验材料，请稍候。'
@@ -172,6 +174,7 @@ function App() {
         ? await window.agentx.continueExecution({ ...request, threadId: selectedTask.threadId!, expectedTurnId: selectedTask.turnId! })
         : await window.agentx.startExecution(request);
       if (stillHere()) {
+        if (!selectedTask) previews.moveToTask(task.taskId);
         if (!selectedTask) draftState.seedNewTask({ projectId: request.projectId, taskId: task.taskId }, draftRevision.current !== revision ? draftState.latestText() : '', draftState.latestMaterials());
         workspace.setSelectedTaskId(task.taskId);
         if (draftRevision.current === revision) {
@@ -317,7 +320,7 @@ function App() {
     </aside>}
     <div className="workspace">
       <header className="window-bar drag-region">{!sidebarOpen && <><button ref={sidebarToggle} className="icon-button" aria-label="展开侧栏" onClick={toggleSidebar}><PanelIcon /></button><button className="icon-button" aria-label="搜索会话" title="搜索会话（Ctrl+K）" onClick={() => setSearchOpen(true)}><SearchIcon /></button><button className="icon-button" aria-label="新会话" onClick={newSession}>＋</button><button className="icon-button" aria-label="设置" onClick={() => setView('settings')}><SettingsIcon /></button></>}</header>
-      <div className={`workbench-layout${resultsOpen || outputItem ? ' has-results' : ''}`} hidden={view !== 'workbench'}>
+      <div className={`workbench-layout${resultsOpen || outputItem || previews.active ? ' has-results' : ''}`} hidden={view !== 'workbench'}>
       <main className={`welcome${selectedTask || currentExecution?.task || reconciliationTaskId ? ' execution-workbench' : ''}`}>
         <div className="welcome-heading">
           <div className="task-heading"><h1 title={selectedTask?.title}>{selectedTask?.title ?? '今天想完成什么工作？'}</h1>
@@ -328,7 +331,7 @@ function App() {
           <p>{currentState ? currentState === 'stopping' ? '正在停止，等待引擎确认…' : taskStateLabel[currentState] : selectedTask ? taskStateLabel[selectedTask.executionState] : '用自然语言描述目标，在这里开始工作。'}</p>
           {selectedTask?.archivedAt && <p className="muted">已归档 · 原历史和文件保留 <button className="secondary-button" aria-label="恢复会话"
             disabled={!!workspace.organizingTaskId} onClick={event => void workspace.archiveTask(selectedTask, event.currentTarget)}>恢复会话</button></p>}
-          {canInspect && <button ref={resultsTrigger} className="secondary-button inspect-results" aria-label="查看文件改动" aria-expanded={resultsOpen} onClick={() => { setOutputSelection(null); setResultsTask(selectedTask!.taskId); }}>查看文件改动</button>}
+          {canInspect && <button ref={resultsTrigger} className="secondary-button inspect-results" aria-label="查看文件改动" aria-expanded={resultsOpen && !previews.active} onClick={() => { previews.hide(); setOutputSelection(null); setResultsTask(selectedTask!.taskId); }}>查看文件改动</button>}
         </div>
         {(selectedTask || currentExecution || reconciliationTaskId) && <div className="execution-transcript">
         {reconciliationTaskId && <ReconciliationNotice key={reconciliationTaskId} taskId={reconciliationTaskId} />}
@@ -362,7 +365,8 @@ function App() {
             event.preventDefault(); if (!draftState.loading) void materialActions.paste();
           }
         }}>
-          <MaterialsList materials={draftState.materials} checking={draftState.checking} actions={materialActions}
+          <MaterialsList materials={draftState.materials} checking={draftState.checking} saving={draftState.saving || draftState.loading} actions={materialActions}
+            open={(item, trigger) => previews.open({ kind: 'material', scope: { projectId: workspace.selectedProjectId, taskId: workspace.selectedTaskId }, materialId: item.materialId }, item.name, trigger)}
             remove={id => { draftRevision.current++; draftState.setMaterials(draftState.latestMaterials().filter(item => item.materialId !== id)); }} />
           {canSteer && <div className="composer-supplement"><button className="supplement-button" aria-label="补充要求" title="补充要求（Enter）"
             disabled={!draft.trim() || !!steeringTaskId || !!execution.error || !!materialsBlocked || draftState.loading || draftState.saving || !!draftState.error} onClick={() => void supplement()}>{steeringTaskId ? '正在补充…' : '补充要求 (Enter)'}</button></div>}
@@ -409,9 +413,10 @@ function App() {
           workspace.setSelectedProjectId(busyTask.projectId); workspace.setSelectedTaskId(busyTask.taskId);
         }}>查看活动或待核对任务</button>}
       </main>
-      {resultsOpen && selectedTask?.turnId && <ResultsPanel key={`${selectedTask.taskId}:${selectedTask.turnId}`} taskId={selectedTask.taskId} turnId={selectedTask.turnId}
+      <FilePreviewPanel {...previews} visible={view === 'workbench' && !!previews.active} running={showStop} />
+      {resultsOpen && !previews.active && selectedTask?.turnId && <ResultsPanel key={`${selectedTask.taskId}:${selectedTask.turnId}`} taskId={selectedTask.taskId} turnId={selectedTask.turnId}
         onClose={() => { setResultsTask(null); resultsTrigger.current?.focus(); }} />}
-      {outputItem && <OutputPanel key={`${outputSelection!.taskId}:${outputItem.threadId}:${outputItem.turnId}:${outputItem.itemId}`} item={outputItem}
+      {outputItem && !previews.active && <OutputPanel key={`${outputSelection!.taskId}:${outputItem.threadId}:${outputItem.turnId}:${outputItem.itemId}`} item={outputItem}
         active={!hasCurrentHistory && outputItem.turnId === currentExecution?.task?.turnId && !execution.error && showStop}
         onClose={() => { setOutputSelection(null); if (outputTrigger.current?.isConnected) outputTrigger.current.focus(); else input.current?.focus(); }} />}
       </div>

@@ -7,7 +7,9 @@ import { MaterialService, pastedImageExtension } from './services/materials';
 import { MATERIAL_CHOOSE_CHANNEL, MATERIAL_DROP_CHANNEL, MATERIAL_CHECK_CHANNEL, MATERIAL_REFRESH_CHANNEL, MATERIAL_PASTE_CHANNEL, MATERIAL_LIMITS } from '../shared/contracts/materials';
 import { DRAFT_READ_CHANNEL, DRAFT_SAVE_CHANNEL } from '../shared/contracts/drafts';
 import { PROJECT_RENAME_CHANNEL, TASK_RENAME_CHANNEL, TASK_PIN_CHANNEL, TASK_ARCHIVE_CHANNEL, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, WORKSPACE_READ_CHANNEL } from '../shared/contracts/projects';
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron';
+import { FILE_PREVIEW_READ_CHANNEL, FILE_PREVIEW_OPEN_CHANNEL } from '../shared/contracts/file-preview';
+import { readFilePreview, openFilePreview } from './services/file-preview';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { EXIT_READ_CHANNEL, EXIT_ANSWER_CHANNEL, EXIT_CHANGED_CHANNEL, type ExitSnapshot } from '../shared/contracts/lifecycle';
@@ -232,6 +234,14 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(TASK_RESULTS_READ_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 1);
       return readTaskResults(dataRoot, args[0]);
+    });
+    ipcMain.handle(FILE_PREVIEW_READ_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return readFilePreview(dataRoot, args[0]);
+    });
+    ipcMain.handle(FILE_PREVIEW_OPEN_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return openFilePreview(dataRoot, args[0], shell);
     });
     ipcMain.handle(EXECUTION_START_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 1);

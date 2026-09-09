@@ -1,0 +1,53 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const os = require('node:os');
+require('ts-node').register({ transpileOnly: true });
+
+test('材料文本预览：只读取当前草稿授权 ID，显示真实 UTF-8 字节和版本，变化不冒充原版本', async () => {
+  const { MaterialService } = require('../../src/main/services/materials.ts');
+  const { saveDraft } = require('../../src/main/storage/drafts.ts');
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-preview-')));
+  const filename = path.join(root, '说明.md'), original = '# 说明\n<script>不应执行</script>\n';
+  await fs.writeFile(filename, original);
+  const [material] = await new MaterialService(root).register([filename]);
+  const scope = { projectId: null, taskId: null };
+  saveDraft(root, { ...scope, text: '阅读材料', expectedRevision: 0, materialIds: [material.materialId] });
+  const { readFilePreview } = require('../../src/main/services/file-preview.ts');
+  const source = { kind: 'material', scope, materialId: material.materialId };
+  const value = await readFilePreview(root, source);
+  assert.equal(value.status, 'ready'); assert.equal(value.text, original);
+  assert.deepEqual(value.source, source); assert.equal(value.path, filename); assert.equal(value.version.sha256, material.version.sha256);
+  await fs.writeFile(filename, '# 外部修改');
+  const changed = await readFilePreview(root, source);
+  assert.equal(changed.status, 'changed'); assert.equal(changed.text, null);
+  assert.equal(changed.version.sha256, material.version.sha256); assert.notEqual(changed.currentVersion.sha256, material.version.sha256);
+  await fs.unlink(filename);
+  assert.equal((await readFilePreview(root, source)).status, 'missing');
+  saveDraft(root, { ...scope, text: '', expectedRevision: 1, materialIds: [] });
+  await assert.rejects(readFilePreview(root, source), /关联|草稿/);
+  await assert.rejects(readFilePreview(root, { ...source, path: 'C:\\Windows' }), /请求/);
+});
+
+test('本机打开：Main 只交付已核对的材料路径，系统失败不报成功，变化阻断打开但可定位', async () => {
+  const { MaterialService } = require('../../src/main/services/materials.ts');
+  const { saveDraft } = require('../../src/main/storage/drafts.ts');
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-preview-open-')));
+  const filename = path.join(root, '笔记.txt'); await fs.writeFile(filename, '打开原件');
+  const [material] = await new MaterialService(root).register([filename]);
+  const scope = { projectId: null, taskId: null };
+  saveDraft(root, { ...scope, text: '', expectedRevision: 0, materialIds: [material.materialId] });
+  const source = { kind: 'material', scope, materialId: material.materialId };
+  const { openFilePreview } = require('../../src/main/services/file-preview.ts');
+  const opened = [], revealed = [], host = { openPath: async value => { opened.push(value); return ''; }, showItemInFolder: value => revealed.push(value) };
+  assert.equal((await openFilePreview(root, { source, action: 'open' }, host)).status, 'requested');
+  assert.deepEqual(opened, [filename]);
+  await assert.rejects(openFilePreview(root, { source, action: 'open' }, { ...host, openPath: async () => '没有默认应用' }), /没有默认应用/);
+  await fs.writeFile(filename, '外部新版本');
+  await assert.rejects(openFilePreview(root, { source, action: 'open' }, host), /变化/);
+  assert.equal(opened.length, 1);
+  await openFilePreview(root, { source, action: 'reveal' }, host); assert.deepEqual(revealed, [filename]);
+  await assert.rejects(openFilePreview(root, { source, action: 'open', path: filename }, host), /请求/);
+  await fs.unlink(filename); await assert.rejects(openFilePreview(root, { source, action: 'reveal' }, host), /不存在|移动|删除/);
+});

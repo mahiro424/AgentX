@@ -17,7 +17,7 @@
 | Electron Main 内置 Node | 24.20.0；不是开发 Node 版本 |
 | 包入口 | `.webpack/main` |
 | 正常数据根 | 用户主目录下 `.AgentX` |
-| 自动测试数据 | `.local-validation/foundation` 下独立随机目录，通过 `AGENTX_DATA_DIR` 注入 |
+| 自动测试数据 | 本切片验收时位于 `.local-validation/foundation` 下独立随机目录，通过 `AGENTX_DATA_DIR` 注入；M2-02 起默认采用系统临时目录下的 `agentx-desktop-test-*`，截图仍留在仓库忽略目录 |
 | 模型请求 | 本切片没有模型调用代码，测试没有调用 DeepSeek |
 
 ```powershell
@@ -30,7 +30,7 @@ node tests/desktop/capture.cjs
 
 `npm test` 启动 `out/AgentX-win32-x64/AgentX.exe`，不是在普通浏览器加载页面。真实包中只有编译后的应用资源和依赖许可证等必要文件；未打入测试目录、原始 G0/G1、缓存、正式用户数据或引擎下载。
 
-测试环境移除常见凭据变量名（KEY/TOKEN/SECRET/PASSWORD 等）。这是当前不调用模型的测试环境清理，不宣称对任意命名凭据或同一 Windows 用户提供强隔离。临时合成目录有意留在忽略目录中供故障核对，不上传，不自动删除已有证据；不是备份或数据清理产品功能。
+测试环境移除常见凭据变量名（KEY/TOKEN/SECRET/PASSWORD 等）。这是当前不调用模型的测试环境清理，不宣称对任意命名凭据或同一 Windows 用户提供强隔离。临时合成目录保留供故障核对，不上传，不自动删除已有证据；不是备份或数据清理产品功能。
 
 ## 3. 逐状态行为记录
 
