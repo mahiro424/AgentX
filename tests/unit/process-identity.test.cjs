@@ -8,7 +8,7 @@ require('ts-node').register({ transpileOnly: true });
 test('身份查询临时诊断：超时仅附固定阶段，不暴露原始 stderr', async t => {
   const childProcess = require('node:child_process');
   t.mock.method(childProcess, 'execFile', (_file, _args, _options, callback) => {
-    callback(Object.assign(new Error('private'), { killed: true, signal: 'SIGTERM' }), '', 'AXP:started\r\nprivate-token-value\r\nAXP:queried\r\n');
+    callback(Object.assign(new Error('private'), { killed: true, signal: 'SIGTERM' }), '', 'AXP:started:1788980000000\r\nprivate-token-value\r\nAXP:queried:1788980000100\r\n');
   });
   const { readProcessIdentity } = require('../../src/main/lifecycle/process-identity.ts');
   await assert.rejects(readProcessIdentity(1234), error => /阶段 queried/.test(error.message) && !error.message.includes('private'));

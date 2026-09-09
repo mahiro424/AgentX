@@ -28,17 +28,22 @@ export async function readProcessIdentity(pid: number): Promise<ProcessIdentity 
   if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 0xffffffff) throw new Error('进程标识无效');
   if (process.platform !== 'win32') throw new Error('当前进程身份核验仅支持 Windows');
   const executable = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const startedAt = Date.now();
+  const mark = (name: string) => `[Console]::Error.WriteLine('AXP:${name}:'+([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())); `;
   const script = `$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); ` +
-    `[Console]::Error.WriteLine('AXP:started'); ` +
+    mark('started') +
     `$p=Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId=${pid}' -ErrorAction Stop; ` +
-    `[Console]::Error.WriteLine('AXP:queried'); ` +
+    mark('queried') +
     `if(!$p){'null'}else{$value=@{pid=[int64]$p.ProcessId;parentPid=[int64]$p.ParentProcessId;createdAt=$p.CreationDate.ToUniversalTime().ToString('o');executablePath=$p.ExecutablePath}; ` +
-    `[Console]::Error.WriteLine('AXP:formatted'); $value|ConvertTo-Json -Compress}; [Console]::Error.WriteLine('AXP:done')`;
+    mark('formatted') + `$json=Get-Command -Name ConvertTo-Json -CommandType Cmdlet -ErrorAction Stop; ` +
+    mark('resolved') + `$value|& $json -Compress}; ` + mark('done');
   const output = await new Promise<string>((resolve, reject) => {
     execFile(executable, ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
       { windowsHide: true, shell: false, encoding: 'utf8', timeout: 10000, maxBuffer: 65536 }, (error, stdout, stderr) => {
         // AXP 临时探针：只返回固定阶段，不复制进程原始错误或输出。
-        const phase = typeof stderr === 'string' ? [...stderr.matchAll(/^AXP:(started|queried|formatted|done)\r?$/gm)].at(-1)?.[1] : undefined;
+        const stages = typeof stderr === 'string' ? [...stderr.matchAll(/^AXP:(started|queried|formatted|resolved|done):(\d{13})\r?$/gm)].map(match => ({ phase: match[1], elapsed: Number(match[2]) - startedAt })) : [];
+        const phase = stages.at(-1)?.phase;
+        if (process.env.AGENTX_CI_OBSERVE === '1') console.log('AXP ' + JSON.stringify({ stages, elapsed: Date.now() - startedAt, failed: Boolean(error) }));
         if (error) reject(new Error(`无法读取进程身份，需核对（查询错误码 ${error.code ?? (error.killed ? '10 秒超时终止' : '未知')}${error.signal ? `；信号 ${error.signal}` : ''}${phase ? `；阶段 ${phase}` : ''}）`));
         else resolve(stdout);
       });
