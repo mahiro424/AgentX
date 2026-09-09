@@ -7,7 +7,8 @@ import type { DraftScope } from '../../shared/contracts/drafts';
 import { materialIds, readMaterials, storeMaterial } from '../storage/materials';
 import { readDraft } from '../storage/drafts';
 import type { Spreadsheet } from '../../shared/contracts/spreadsheet';
-import { readSpreadsheet } from './spreadsheet';
+import { readSpreadsheet, readDocument } from './spreadsheet';
+import type { OfficeDocument } from '../../shared/contracts/document';
 
 const identity = (stat: BigIntStats) => `${stat.dev}:${stat.ino}:${stat.isDirectory() ? 'directory' : `${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`}`;
 const validPath = (value: unknown): value is string => typeof value === 'string' && value.length <= 16000 && path.isAbsolute(value) && !/[\u0000-\u001f\u007f]/u.test(value);
@@ -22,8 +23,8 @@ export function pastedImageExtension(bytes: Buffer, mime: string): string {
   throw new Error('剪贴板图片格式无效；请保存为 PNG、JPEG 或 WebP 后添加');
 }
 
-export async function inspectMaterialFile(filename: string, parseOffice = true): Promise<{ record: Omit<MaterialRecord, 'materialId'>; text: string | null; spreadsheet: Spreadsheet | null }> {
-  const result = (record: Omit<MaterialRecord, 'materialId'>, text: string | null = null, spreadsheet: Spreadsheet | null = null) => ({ record, text, spreadsheet });
+export async function inspectMaterialFile(filename: string, parseOffice = true): Promise<{ record: Omit<MaterialRecord, 'materialId'>; text: string | null; spreadsheet: Spreadsheet | null; document: OfficeDocument | null }> {
+  const result = (record: Omit<MaterialRecord, 'materialId'>, text: string | null = null, spreadsheet: Spreadsheet | null = null, document: OfficeDocument | null = null) => ({ record, text, spreadsheet, document });
   let record: Omit<MaterialRecord, 'materialId'> = { path: filename, name: path.basename(filename), kind: 'unsupported',
     status: 'unreadable', message: '材料无法读取，请核对访问权限', version: null };
   try {
@@ -34,11 +35,11 @@ export async function inspectMaterialFile(filename: string, parseOffice = true):
     if (initial.isDirectory()) return result({ ...record, kind: 'directory', status: 'ready', message: '目录引用；不会自动遍历全部内容',
       version: { identity: identity(initial), size: 0, sha256: null } });
     const extension = path.extname(canonical).toLowerCase();
-    const kind = ['.txt', '.md', '.markdown'].includes(extension) ? 'text' : ['.csv', '.xlsx'].includes(extension) ? 'spreadsheet' : ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'].includes(extension) ? 'image' : 'unsupported';
+    const kind = ['.txt', '.md', '.markdown'].includes(extension) ? 'text' : ['.csv', '.xlsx'].includes(extension) ? 'spreadsheet' : extension === '.docx' ? 'document' : ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'].includes(extension) ? 'image' : 'unsupported';
     record = { ...record, kind };
-    if (kind === 'unsupported') return result({ ...record, status: 'unsupported', message: '当前开放 TXT / Markdown 与 CSV / XLSX 预览；此格式暂不能发送' });
-    const maxBytes = kind === 'image' ? MATERIAL_LIMITS.imageBytes : kind === 'spreadsheet' ? MATERIAL_LIMITS.spreadsheetBytes : MATERIAL_LIMITS.textBytes;
-    if (initial.size > BigInt(maxBytes)) return result({ ...record, message: `材料超限：${kind === 'image' ? '图片最多 8 MiB' : kind === 'spreadsheet' ? '表格最多 8 MiB' : '文本最多 1 MiB'}` });
+    if (kind === 'unsupported') return result({ ...record, status: 'unsupported', message: '当前开放 TXT / Markdown、CSV / XLSX 与 DOCX；此格式暂不能发送' });
+    const maxBytes = kind === 'image' ? MATERIAL_LIMITS.imageBytes : kind === 'spreadsheet' ? MATERIAL_LIMITS.spreadsheetBytes : kind === 'document' ? MATERIAL_LIMITS.documentBytes : MATERIAL_LIMITS.textBytes;
+    if (initial.size > BigInt(maxBytes)) return result({ ...record, message: `材料超限：${kind === 'image' ? '图片最多 8 MiB' : kind === 'spreadsheet' ? '表格最多 8 MiB' : kind === 'document' ? '文档最多 8 MiB' : '文本最多 1 MiB'}` });
     const handle = await fs.open(canonical, 'r');
     try {
       if (identity(await handle.stat({ bigint: true })) !== identity(initial)) return result({ ...record, status: 'changed', message: '材料在核验期间发生变化，请重查' });
@@ -57,20 +58,21 @@ export async function inspectMaterialFile(filename: string, parseOffice = true):
       record = { ...record, version: { identity: identity(initial), size: length, sha256: createHash('sha256').update(bytes).digest('hex') } };
       let text: string | null = null;
       let spreadsheet: Spreadsheet | null = null;
+      let document: OfficeDocument | null = null;
       if (kind === 'text') {
         try {
           if (bytes.includes(0)) throw new Error('binary');
           text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
         } catch { return result({ ...record, message: '文本不是有效 UTF-8，请转换编码后重新添加' }); }
       }
-      if (kind === 'spreadsheet' && parseOffice) {
-        try { spreadsheet = await readSpreadsheet(bytes, extension); }
-        catch (cause) { return result({ ...record, status: 'unreadable', message: cause instanceof Error ? cause.message : '表格解析失败，未返回空表' }); }
+      if ((kind === 'spreadsheet' || kind === 'document') && parseOffice) {
+        try { if (kind === 'spreadsheet') spreadsheet = await readSpreadsheet(bytes, extension); else document = await readDocument(bytes, extension); }
+        catch (cause) { return result({ ...record, status: 'unreadable', message: cause instanceof Error ? cause.message : '办公文件解析失败，未返回空内容' }); }
         if (identity(initial) !== identity(await handle.stat({ bigint: true })) || await fs.realpath(filename) !== canonical ||
-          identity(initial) !== identity(await fs.lstat(canonical, { bigint: true }))) return result({ ...record, status: 'changed', message: '材料在表格解析期间发生变化，请重查' });
+          identity(initial) !== identity(await fs.lstat(canonical, { bigint: true }))) return result({ ...record, status: 'changed', message: '材料在办公解析期间发生变化，请重查' });
       }
       return result({ ...record, status: kind === 'image' ? 'blockedImage' : 'ready',
-        message: kind === 'image' ? '图像能力尚未验证，含图发送已阻断' : kind === 'spreadsheet' ? '表格可读取；公式未重算，尚不代表 Agent 已读取' : '可读取；尚不代表 Agent 已读取' }, text, spreadsheet);
+        message: kind === 'image' ? '图像能力尚未验证，含图发送已阻断' : kind === 'spreadsheet' ? '表格可读取；公式未重算，尚不代表 Agent 已读取' : '可读取；尚不代表 Agent 已读取' }, text, spreadsheet, document);
     } finally { await handle.close(); }
   } catch (cause) {
     const code = (cause as NodeJS.ErrnoException).code;
@@ -140,7 +142,7 @@ export class MaterialService {
       const current = (await inspectMaterialFile(record.path, false)).record;
       const compared = compareMaterial(record, current);
       // 同版本重查只核验字节；不重复启动解析进程，也不能将原解析失败改写为成功。
-      return record.kind === 'spreadsheet' && compared.status === 'ready' && record.status !== 'ready' ? { ...compared, status: record.status, message: record.message } : compared;
+      return ['spreadsheet', 'document'].includes(record.kind) && compared.status === 'ready' && record.status !== 'ready' ? { ...compared, status: record.status, message: record.message } : compared;
     }));
   }
 
@@ -149,6 +151,7 @@ export class MaterialService {
     const material = compareMaterial(record, observed.record);
     return { material, currentVersion: observed.record.version, text: material.status === 'ready' ? observed.text : null,
       spreadsheet: material.status === 'ready' ? observed.spreadsheet : null,
+      document: material.status === 'ready' ? observed.document : null,
       observedAt: new Date().toISOString() };
   }
 

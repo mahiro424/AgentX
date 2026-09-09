@@ -13,6 +13,27 @@ const run = (cwd, args) => promisify(execFile)(process.execPath, ['--max-old-spa
   env: Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(SystemRoot|WINDIR|TEMP|TMP)$/i.test(key))),
 });
 
+test('文档命令：生成新的 DOCX 并按实际哈希回读段落，同名和错误哈希不改写文件', async () => {
+  const cwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-document-cli-')));
+  const paragraphs = ['青禾季度报告', '收入：95；交付：周五', '<script>只是文字</script>'];
+  await fs.writeFile(path.join(cwd, '内容.json'), JSON.stringify({ paragraphs }));
+  const result = JSON.parse((await run(cwd, ['write', '内容.json', '报告.docx'])).stdout);
+  const bytes = await fs.readFile(result.path);
+  assert.equal(result.sha256, digest(bytes)); assert.equal(result.validation, 'structure-only');
+  assert.equal(result.paragraphCount, 3); assert.equal(result.formulaStatus, undefined);
+  const JSZip = require('jszip'), zip = await JSZip.loadAsync(bytes);
+  const xml = await zip.file('word/document.xml').async('string');
+  assert.match(xml, /青禾季度报告/); assert.match(xml, /收入：95；交付：周五/); assert.match(xml, /&lt;script&gt;/);
+  const read = JSON.parse((await run(cwd, ['read', result.path, result.sha256, '回读.json'])).stdout);
+  assert.equal(read.sourceSha256, result.sha256);
+  const document = JSON.parse(await fs.readFile(read.path, 'utf8'));
+  assert.equal(document.format, 'docx'); assert.deepEqual(document.paragraphs, paragraphs);
+  await assert.rejects(run(cwd, ['write', '内容.json', '报告.docx']), error => error.code === 1 && /EEXIST/.test(error.stderr));
+  await assert.rejects(run(cwd, ['read', result.path, '0'.repeat(64), '错误.json']), /版本.*变化/);
+  assert.equal(digest(await fs.readFile(result.path)), digest(bytes));
+  await assert.rejects(fs.access(path.join(cwd, '错误.json')), /ENOENT/);
+});
+
 test('表格命令读取：核对材料哈希，生成含坐标类型与公式的结构化文件，不覆盖任何已有文件', async () => {
   const { Workbook } = require('exceljs');
   const cwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-office-cli-')));

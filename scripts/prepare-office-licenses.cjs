@@ -12,8 +12,13 @@ async function prepareOfficeLicenses(destination = path.join(root, '.cache', 'li
     const names = (await fs.readdir(directory, { withFileTypes: true })).filter(item => item.isFile() && /^(licen[sc]e|copying|notice|copyright)/i.test(item.name)).map(item => item.name).sort();
     let files = names.map(name => path.join(directory, name));
     if (!files.length && metadata.name === 'isarray' && metadata.version === '1.0.0') files = [path.join(directory, 'README.md')];
+    if (!files.length && metadata.name === 'hash.js' && metadata.version === '1.1.7') files = [path.join(directory, 'README.md')];
     // 该 npm 版本未带许可文件，保留对应官方版本的完整许可原文。
     if (!files.length && metadata.name === 'saxes' && metadata.version === '5.0.1') files = [path.join(root, 'runtime', 'licenses', 'saxes-5.0.1-LICENSE')];
+    // 此版本只有明确 SPDX 发布声明；附原元数据与标准条款，不能伪造缺失的上游 LICENSE。
+    if (!files.length && metadata.name === 'dingbat-to-unicode' && metadata.version === '1.0.1' && metadata.license === 'BSD-2-Clause') {
+      files = [path.join(directory, 'package.json'), path.join(root, 'runtime', 'licenses', 'dingbat-to-unicode-1.0.1-NOTICE')];
+    }
     if (!files.length) throw new Error(`依赖缺少可打包的许可原文：${metadata.name}@${metadata.version}`);
     sections.push(`\n${'='.repeat(72)}\n${metadata.name}@${metadata.version}\n${JSON.stringify(metadata.license ?? locked.license)}\n`);
     for (const filename of files) sections.push(`${path.basename(filename)}\n${await fs.readFile(filename, 'utf8')}`);

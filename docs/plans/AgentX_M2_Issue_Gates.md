@@ -12,8 +12,8 @@
 | M2-01 | [#21](https://github.com/mahiro424/AgentX/issues/21) 会话组织与可定位的标题正文搜索 | app-shell | #20 合入 m2 | 已关闭；[PR #29](https://github.com/mahiro424/AgentX/pull/29) 已通过检查并合入 m2 |
 | M2-R1 | [#30](https://github.com/mahiro424/AgentX/issues/30) 按完整工作链路调整材料、表格与文档切片 | headless | #20 已合入 m2 | 已关闭；[PR #31](https://github.com/mahiro424/AgentX/pull/31) 已合入 m2 |
 | M2-02 | [#22](https://github.com/mahiro424/AgentX/issues/22) 非项目材料与文本预览续改闭环 | workbench | #21、#30 合入 m2 | 已关闭；[PR #32](https://github.com/mahiro424/AgentX/pull/32) 已通过检查并合入 m2 |
-| M2-03 | [#23](https://github.com/mahiro424/AgentX/issues/23) 表格处理、预览与续改闭环 | workbench | #22 合入 m2 | ready-for-agent；七项必读简报已发布，m2-03 实施中，不能仅以解析/预览关闭工单 |
-| M2-04 | [#24](https://github.com/mahiro424/AgentX/issues/24) 文档与文本 PDF 的结果检查续改闭环 | workbench | #23 合入 m2 | ready-for-human：等待依赖，不要求重复视觉确认 |
+| M2-03 | [#23](https://github.com/mahiro424/AgentX/issues/23) 表格处理、预览与续改闭环 | workbench | #22 合入 m2 | 已关闭；[PR #33](https://github.com/mahiro424/AgentX/pull/33) 已通过检查并合入 m2 |
+| M2-04 | [#24](https://github.com/mahiro424/AgentX/issues/24) 文档与文本 PDF 的结果检查续改闭环 | workbench | #23 合入 m2 | ready-for-agent；原样七项必读简报已发布，m2-04 按已批准范围实施 |
 | M2-05 | [#25](https://github.com/mahiro424/AgentX/issues/25) 异常核对、所属残留停止与安全收尾 | app-shell | #24 合入 m2 | ready-for-human：等待依赖，不要求重复视觉确认 |
 
 ## 领取与验收

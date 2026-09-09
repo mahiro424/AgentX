@@ -4,8 +4,8 @@ export const MATERIAL_CHECK_CHANNEL = 'agentx:material-check';
 export const MATERIAL_REFRESH_CHANNEL = 'agentx:material-refresh';
 export const MATERIAL_PASTE_CHANNEL = 'agentx:material-paste-image';
 
-export const MATERIAL_LIMITS = { count: 16, textBytes: 1024 * 1024, imageBytes: 8 * 1024 * 1024, spreadsheetBytes: 8 * 1024 * 1024 } as const;
-export type MaterialKind = 'text' | 'directory' | 'image' | 'spreadsheet' | 'unsupported';
+export const MATERIAL_LIMITS = { count: 16, textBytes: 1024 * 1024, imageBytes: 8 * 1024 * 1024, spreadsheetBytes: 8 * 1024 * 1024, documentBytes: 8 * 1024 * 1024 } as const;
+export type MaterialKind = 'text' | 'directory' | 'image' | 'spreadsheet' | 'document' | 'unsupported';
 export type MaterialStatus = 'ready' | 'changed' | 'missing' | 'unreadable' | 'unsupported' | 'blockedImage';
 export interface MaterialVersion {
   identity: string;

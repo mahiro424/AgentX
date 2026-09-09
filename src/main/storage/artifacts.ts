@@ -17,7 +17,7 @@ function validate(value: ArtifactRecord, taskId: string, resultId: string) {
   if (!value || Object.keys(value).length !== 11 || value.version !== 1 || value.taskId !== taskId || !uuid(taskId) || !uuid(value.operationId) ||
     !text(value.threadId, 512) || !text(value.turnId, 512) || !text(value.directory, 32767) || !path.isAbsolute(value.directory) ||
     !text(value.path, 32767) || /[\\:]/u.test(value.path) || value.path.split('/').some(part => !part || part === '.' || part === '..') ||
-    !['.txt', '.md', '.markdown', '.csv', '.xlsx'].includes(path.extname(value.path).toLowerCase()) ||
+    !['.txt', '.md', '.markdown', '.csv', '.xlsx', '.docx'].includes(path.extname(value.path).toLowerCase()) ||
     !Number.isSafeInteger(value.size) || value.size < 0 || value.size > workspaceFileLimit(value.path) || !sha(value.sha256) ||
     !text(value.observedAt, 40) || !Number.isFinite(Date.parse(value.observedAt)) ||
     value.resultId !== resultId || !sha(resultId) || idFor(value) !== resultId) throw new Error('产物引用损坏或归属不匹配，未读取替代文件');

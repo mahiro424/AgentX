@@ -4,7 +4,7 @@
 
 ## 阅读顺序与唯一权威来源
 
-M2 已获实施及仅合入 `m2` 的授权。后续按文本、表格、文档分别贯穿“材料 → 产物 → 预览 → 续改”，最后完善异常收尾；这些后续能力尚未实现。见 [M2 实施计划](plans/AgentX_M2_Implementation_Plan.md)和[M2 工单门禁](plans/AgentX_M2_Issue_Gates.md)。原 M1 及 M2-01 失败记录保留，不以新分期改写历史证据。
+M2 已获实施及仅合入 `m2` 的授权。文本与表格完整切片已分别通过 PR #32/#33 合入 `m2`；当前在 `m2-04` 实施文档/PDF 工作台，随后完善异常收尾，不能把已交付格式等同完整 M2。见 [M2 实施计划](plans/AgentX_M2_Implementation_Plan.md)和[M2 工单门禁](plans/AgentX_M2_Issue_Gates.md)。原失败记录保留，不以新分期改写历史证据。
 
 | 顺序 | 文档 | 回答的问题 |
 | --- | --- | --- |
@@ -21,6 +21,7 @@ M2 已获实施及仅合入 `m2` 的授权。后续按文本、表格、文档�
 | 11 | [M1 交付说明](validation/AgentX_M1_Delivery.md) | 如何启动、已测能力、验收证据、包体校验与后续范围 |
 | 12 | [M2 实施计划](plans/AgentX_M2_Implementation_Plan.md) | 日常材料、表格、文档到结果续改的分期与技术边界 |
 | 13 | [M2 工单门禁](plans/AgentX_M2_Issue_Gates.md) | 已合入切片、下一切片依赖及正式验收入口 |
+| 14 | [M2-04 文档实施记录](validation/M2_04_Document_Validation.md) | DOCX/PDF 连续状态、实际验证与尚未完成边界 |
 
 [CONTEXT.md](../CONTEXT.md) 作为领域词汇表，与本轮取消产品验收状态的决定同步。PRD 不定义协议字段；架构文档不重复定义页面；状态文档是状态转换表的唯一维护位置；ADR 记录决定与理由，不复制架构全文。
 

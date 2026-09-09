@@ -206,6 +206,9 @@ h1 { margin: 0; font-size: 24px; line-height: 32px; font-weight: 600; }
 .preview-meta p { margin: 8px 0; }
 .preview-content { flex: 1; min-height: 0; overflow: auto; padding: 12px 20px 24px; }
 .preview-content pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: 'Cascadia Code', Consolas, monospace; line-height: 1.7; }
+.document-paper { padding: 24px; background: var(--surface-card); border: 1px solid var(--border-default); border-radius: var(--radius-control); line-height: 1.8; overflow-wrap: anywhere; }
+.document-paper p { margin: 0 0 1em; white-space: pre-wrap; }
+.document-paper p:last-child { margin-bottom: 0; }
 .preview-spreadsheet { padding: 0; overflow: hidden; }
 .spreadsheet-view { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .sheet-note { margin: 0; padding: 8px 16px; font-size: 12px; color: var(--semantic-info); background: var(--interaction-hover); flex: none; }

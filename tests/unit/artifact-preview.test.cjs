@@ -26,6 +26,26 @@ async function fixture() {
   return { root, directory, taskId, operationId, request: { taskId, turnId: 'artifact-turn' } };
 }
 
+test('文档产物：真实 DOCX 绑定来源轮次并预览，损坏的新字节不覆盖已登记版本', async () => {
+  const { Document, Paragraph, Packer } = require('docx');
+  const { readTaskResults } = require('../../src/main/services/task-results.ts');
+  const { readFilePreview } = require('../../src/main/services/file-preview.ts');
+  const value = await fixture(), filename = path.join(value.directory, '报告.docx');
+  await fs.writeFile(filename, await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('收入 95，周五交付')] }] })));
+  const result = await readTaskResults(value.root, value.request);
+  assert.equal(result.artifacts.length, 1);
+  const artifact = result.artifacts[0], source = { kind: 'result', taskId: value.taskId, resultId: artifact.resultId };
+  const preview = await readFilePreview(value.root, source);
+  assert.equal(preview.status, 'ready'); assert.equal(preview.turnId, value.request.turnId);
+  assert.deepEqual(preview.document.paragraphs, ['收入 95，周五交付']);
+  assert.equal(preview.version.sha256, artifact.sha256);
+  await fs.writeFile(filename, '未完成的文档');
+  const broken = await readFilePreview(value.root, source);
+  assert.equal(broken.status, 'unreadable'); assert.equal(broken.document, null);
+  assert.equal(broken.version.sha256, artifact.sha256);
+  assert.notEqual(broken.currentVersion.sha256, artifact.sha256);
+});
+
 test('真实产物：检查实际新增文件才建立稳定结果 ID，按任务和来源轮次预览，不接受任意路径', async () => {
   const { readTaskResults } = require('../../src/main/services/task-results.ts');
   const { readFilePreview } = require('../../src/main/services/file-preview.ts');
