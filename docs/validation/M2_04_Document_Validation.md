@@ -1,6 +1,6 @@
 # M2-04 文档工作台实施记录
 
-正式 [Issue #24](https://github.com/mahiro424/AgentX/issues/24)，分支 `m2-04`，PR 仅以 `m2` 为目标。本记录持续追加证据，不代表文档/PDF 整个工单已经完成。
+正式 [Issue #24](https://github.com/mahiro424/AgentX/issues/24)，分支 `m2-04`，PR 仅以 `m2` 为目标。本记录按时间追加，早期“未完成”描述为当时检查点；当前实现和现场已覆盖全部九项状态，正在完成清理后的最终回归与 PR 门禁。
 
 ## 门禁与实施计划
 
@@ -60,7 +60,7 @@ PDF 采用 pdfjs-dist 6.3.289：有界解析进程提取文字，Chromium 绘制
 
 PDF 截图：[浅色常规](images/m2-04/pdf-light-1280.png)、[浅色紧凑](images/m2-04/pdf-light-960.png)、[深色常规](images/m2-04/pdf-dark-1280.png)、[深色紧凑](images/m2-04/pdf-dark-960.png)、[损坏后的旧页面](images/m2-04/pdf-stale-dark-960.png)，[尺寸与页画布记录](images/m2-04/pdf-geometry.json)。实际 PDF 专用 Node 资源为 5,418,961 字节，应用 asar 为 9,111,166 字节；相对 DOCX 检查点二者合计增加约 10.1 MiB，不等同整个安装包增量的压缩大小。专用资源目录不含 `.node` 模块。
 
-当前 DOCX 检查点已更新原目录包；PDF 实包仅在独立临时目录验证，尚待最终更新记录。DOCX/PDF 真实 Flash 文档任务、图片预览、#24 全矩阵与远程 CI 门禁仍未完成。[PR #34](https://github.com/mahiro424/AgentX/pull/34) 保持草稿，不合并、不关闭本工单。
+当时 DOCX 检查点已更新原目录包；PDF 实包仅在独立临时目录验证，尚待最终更新记录。DOCX/PDF 真实 Flash 文档任务、图片预览、#24 全矩阵与远程 CI 门禁尚未完成。[PR #34](https://github.com/mahiro424/AgentX/pull/34) 因此保持草稿。后续进展按下方时间记录核对。
 
 - 071：PDF 功能提交 `81f5ced8eea5f36a55e98fa4d5862b0724de8778` 的实包已保护性更新到原 `out/AgentX-win32-x64`，旧 DOCX 包保留为 `AgentX-win32-x64-before-20260910-012931`。原目录 DOCX/PDF 真实 Electron 复验 4/4；app.asar SHA-256 为 `46eb10516f07b35531b3c0c30461afed9d17435caf8e9c78447e99193cb62f41`。真实 Flash 与图片状态仍继续验收，PR 保持草稿。
 ## 图片与真实文档闭环
@@ -94,3 +94,12 @@ PDF 截图：[浅色常规](images/m2-04/pdf-light-1280.png)、[浅色紧凑](im
 图片检查点已更新原 out 目录，源提交 `aa7e1c11b78a0e50cc09cbc091d9ae38a23678d6`，旧 PDF 包保留在同级 `AgentX-win32-x64-before-20260910-014835`；当前 app.asar SHA-256 为 `3caaa92bc96090bf19fbabe38639a6ab0bed3f964f3859279757dc197f0813bc`。第一次文档检查在截图尚未暂存时报告未入库引用，暂存图片后重跑为 43 份文档/314 个本地链接零错误，没有删除引用规避检查。
 
 - 093/096：独立 CI 差分显示 Node 与相同配置 Codex 的 CIM 查询均可完成（首次约 1.7–3.2 秒，后续约 0.3–0.5 秒），不能据此断定 PSModulePath 污染或某个属性必然失效，也不能把预热差当修复。继续收窄到产品原函数和原测试上下文，不改变产品查询边界。
+
+## 最终审查与稳定性记录
+
+- 092：图片检查点的完整本地回归 313/314，约 1655 秒；唯一失败是原始 Codex stdio 握手应答超时（30 秒，回收后退出码 0、stderr 0 字节），不是前序 CI 的 CIM 身份查询。两类超时分开保留，不据此修改模型、放宽超时或自动重发。
+- 099/101：独立 CI 调用实际产品 `readProcessIdentity` 及原样四项 `codex-handshake.test.cjs` 均通过。103 对最新完整 CI 作核对：提交 `88db8e3` 的 push 与 PR 桌面任务均成功，PR 任务为 315/315、零跳过。PR workflow 的红色来自独立临时诊断任务下载固定引擎时 `fetch failed`，不是桌面任务失败；仍不能把整个 workflow 称为通过。
+- 104：不改产品代码/超时/权限，原始无密钥握手四项测试连续运行五次，20/20。先前间歇超时尚未稳定复现，根因未知；不宣称已修复。生产在这两类失败下均保持可见错误、禁止自动重发。异常后核对与收尾继续由 M2-05 覆盖，而不是修改 Codex 黑盒。
+- 102 是尚未实施的静态阶段探针 RED，随诊断方案收敛撤下，不混入功能通过数；没有把该阶段日志植入产品。临时差分脚本和独立 CI 任务已清理，完整桌面门禁、身份核验与原超时保留，后续最终 CI 重新检查。
+- 最终两路只读审查未留下已确认阻塞缺陷。解析审查提出的“浏览器 PDF 资源未打包”经具体源码和实包点验排除：`webpack.renderer.config.ts` 调用 `pdfResources(true)` 将 worker/WASM/ICC 打入 `app.asar/.webpack/renderer/main_window/pdfjs`；原目录包中对应文件实际存在，`tests/desktop/pdf.test.cjs` 使用真实 Electron 画布像素/分页断言，不是仅 Main 解析测试。原生打开前的文件核验不构成对外部软件持有文件期间的不可变承诺。
+- 生产依赖安全审计 098：npm 官方 registry 报告 0 条已知漏洞；未运行自动升级或改写锁定版本。原目录包仍为上文 aa7e1c1 检查点，之后仅文档/测试/临时 CI 诊断变化，没有遗漏待打包产品代码。
