@@ -28,13 +28,15 @@ async function seed(app) {
       fetching: false, saving: false, fetchError: null, keySaveError: null, testing: null, tests: [] }));
     globalThis.continueRequests = []; globalThis.failContinue = false;
     ipcMain.removeHandler('agentx:execution-continue');
-    ipcMain.handle('agentx:execution-continue', (_event, request) => {
+    ipcMain.handle('agentx:execution-continue', async (_event, request) => {
       globalThis.continueRequests.push(request);
       if (globalThis.failContinue) throw new Error('合成新配置准备失败');
+      const materials = await new (req(repository + '/src/main/services/materials.ts').MaterialService)(root)
+        .freeze({ projectId: request.projectId, taskId: request.taskId }, request.text, request.materials);
       snapshot.preparing = true; notify();
       return new Promise(resolve => {
         globalThis.finishContinuation = () => {
-          const previous = read(); store.beginTaskContinuation(root, previous, { ...request, credentialRef: uuid() });
+          const previous = read(); store.beginTaskContinuation(root, previous, { ...request, materials, credentialRef: uuid() });
           store.markSubmissionDispatched(root, taskId, request.operationId);
           store.acknowledgeSubmission(root, taskId, request.operationId, previous.threadId, 'ui-turn-2');
           Object.assign(snapshot, { preparing: false, task: read(), operationId: request.operationId, inputText: request.text,

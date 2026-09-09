@@ -21,6 +21,7 @@ import { ResultsPanel } from './workbench/ResultsPanel';
 import { OutputPanel } from './workbench/OutputPanel';
 import type { CommandItem } from '../shared/contracts/execution';
 import { useDraft } from './workbench/useDraft';
+import { MaterialsList, MaterialsMenu, useMaterialActions } from './workbench/MaterialsInput';
 import { ExecutionTimeline } from './workbench/ExecutionTimeline';
 import { taskStateLabel } from './shell/TaskStatus';
 import { FLASH_MODEL_ID, type ModelSettings as ModelConfiguration } from '../shared/contracts/models';
@@ -100,6 +101,9 @@ function App() {
   }
   const draftState = useDraft({ projectId: workspace.selectedProjectId, taskId: workspace.selectedTaskId });
   const draft = draftState.text, setDraft = draftState.setText;
+  const materialActions = useMaterialActions(draftState.latestMaterials, values => { draftRevision.current++; draftState.setMaterials(values); });
+  const materialsBlocked = materialActions.busy || draftState.checking ? '正在核验材料，请稍候。'
+    : draftState.materialError || (draftState.materials.some(item => item.status !== 'ready') ? '请先重查或移除不可用材料。' : '');
   const [modelConfiguration, setModelConfiguration] = useState<ModelConfiguration | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const submitLock = useRef(false);
@@ -112,6 +116,7 @@ function App() {
   const reconciliationTaskId = selectedTask?.executionState === 'reconciling' || (selectedTask && reconciliationTaskIds.includes(selectedTask.taskId))
     ? selectedTask!.taskId : reconciliationTaskIds[0] ?? (busyTask?.executionState === 'reconciling' ? busyTask.taskId : null);
   const blockedReason = submitting || execution.snapshot?.preparing ? '正在提交，请等待确认，不会重复发送。'
+    : materialsBlocked ? materialsBlocked
     : selectedTask?.archivedAt ? '会话已归档，请先显式恢复后再发送；原草稿和历史保留。'
     : draftState.loading || draftState.saving || draftState.error ? '请先确认草稿已读取并保存。'
     : !workspace.snapshot || workspace.error || !execution.snapshot || execution.error ? '请先完成项目和执行状态读取。'
@@ -157,7 +162,8 @@ function App() {
     if (blockedReason || submitLock.current || !modelConfiguration) return;
     const previousTaskId = workspace.selectedTaskId;
     const request = { taskId: selectedTask?.taskId ?? crypto.randomUUID(), operationId: crypto.randomUUID(), projectId: workspace.selectedProjectId,
-      modelId: FLASH_MODEL_ID, configRevision: modelConfiguration.configRevision, text: draft };
+      modelId: FLASH_MODEL_ID, configRevision: modelConfiguration.configRevision, text: draft,
+      materials: { revision: draftState.revision!, ids: draftState.materials.map(item => item.materialId) } };
     const revision = ++draftRevision.current, generation = selection.current.generation;
     const stillHere = () => selection.current.projectId === request.projectId && selection.current.taskId === previousTaskId && selection.current.generation === generation;
     submitLock.current = true; setSubmitting(true); setExecutionActionError(null);
@@ -166,12 +172,17 @@ function App() {
         ? await window.agentx.continueExecution({ ...request, threadId: selectedTask.threadId!, expectedTurnId: selectedTask.turnId! })
         : await window.agentx.startExecution(request);
       if (stillHere()) {
-        if (!selectedTask && draftRevision.current !== revision) draftState.seedNewTask({ projectId: request.projectId, taskId: task.taskId }, draftState.latestText());
+        if (!selectedTask) draftState.seedNewTask({ projectId: request.projectId, taskId: task.taskId }, draftRevision.current !== revision ? draftState.latestText() : '', draftState.latestMaterials());
         workspace.setSelectedTaskId(task.taskId);
-        if (draftRevision.current === revision) setDraft('');
+        if (draftRevision.current === revision) {
+          // 首发材料已归入任务；清空原新对话现场，续轮则保留本任务材料。
+          if (!selectedTask) draftState.setMaterials([]);
+          setDraft('');
+        }
       }
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : '发送失败，请先核对执行状态';
+      void draftState.checkMaterials();
       if (stillHere()) setExecutionActionError({ taskId: previousTaskId, message });
       // 失败也可能已经持久化并发往引擎；定位已有记录，而不是把失败当作可自动重试。
       try {
@@ -189,15 +200,17 @@ function App() {
 
   async function supplement() {
     const task = currentExecution?.task;
-    if (!task?.threadId || !task.turnId || !canSteer || !draft.trim() || steeringTaskId || execution.error) return;
+    if (!task?.threadId || !task.turnId || !canSteer || !draft.trim() || steeringTaskId || execution.error || materialsBlocked || draftState.loading || draftState.saving || draftState.error) return;
     const text = draft, revision = draftRevision.current;
     setSteeringTaskId(task.taskId); setExecutionActionError(null); setSteerNotice(null);
     try {
-      await window.agentx.steerExecution({ taskId: task.taskId, operationId: crypto.randomUUID(), threadId: task.threadId, turnId: task.turnId, text });
+      await window.agentx.steerExecution({ taskId: task.taskId, operationId: crypto.randomUUID(), threadId: task.threadId, turnId: task.turnId, text,
+        materials: { revision: draftState.revision!, ids: draftState.materials.map(item => item.materialId) } });
       setSteerNotice({ taskId: task.taskId, turnId: task.turnId, message: '补充要求已接收' });
       // 仅清除本次确已接收且没有再编辑的输入，切换会话也会推进草稿修订。
       if (draftRevision.current === revision) setDraft('');
     } catch (cause) {
+      void draftState.checkMaterials();
       setExecutionActionError({ taskId: task.taskId, turnId: task.turnId, message: cause instanceof Error ? cause.message : '补充失败，请保留输入' });
     } finally { setSteeringTaskId(null); void execution.load(); }
   }
@@ -339,9 +352,20 @@ function App() {
           {workspace.snapshot?.projects.map(project => <option key={project.projectId} value={project.projectId}>{project.displayName}</option>)}
           <option value="choose-directory">选择本地文件夹…</option>
         </select></div>
-        <section className="composer" aria-label="任务输入">
+        <section className="composer" aria-label="任务输入" onDragOver={event => {
+          if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }
+        }} onDrop={event => {
+          if (!event.dataTransfer.files.length) return;
+          event.preventDefault(); if (!draftState.loading) void materialActions.drop(Array.from(event.dataTransfer.files));
+        }} onPaste={event => {
+          if (Array.from(event.clipboardData.items).some(item => item.type.startsWith('image/'))) {
+            event.preventDefault(); if (!draftState.loading) void materialActions.paste();
+          }
+        }}>
+          <MaterialsList materials={draftState.materials} checking={draftState.checking} actions={materialActions}
+            remove={id => { draftRevision.current++; draftState.setMaterials(draftState.latestMaterials().filter(item => item.materialId !== id)); }} />
           {canSteer && <div className="composer-supplement"><button className="supplement-button" aria-label="补充要求" title="补充要求（Enter）"
-            disabled={!draft.trim() || !!steeringTaskId || !!execution.error} onClick={() => void supplement()}>{steeringTaskId ? '正在补充…' : '补充要求 (Enter)'}</button></div>}
+            disabled={!draft.trim() || !!steeringTaskId || !!execution.error || !!materialsBlocked || draftState.loading || draftState.saving || !!draftState.error} onClick={() => void supplement()}>{steeringTaskId ? '正在补充…' : '补充要求 (Enter)'}</button></div>}
           <label className="sr-only" htmlFor="task-draft">任务要求</label>
           <textarea id="task-draft" ref={input} value={draft} disabled={draftState.loading} onChange={event => { draftRevision.current++; setDraft(event.target.value); }}
             onKeyDown={event => {
@@ -364,6 +388,7 @@ function App() {
             }}
             placeholder="描述你想完成的工作…" title="Enter 发送，Ctrl+Enter 换行" />
           <div className="composer-toolbar">
+            <MaterialsMenu disabled={draftState.loading || materialActions.busy} choose={materialActions.choose} />
             <span className="muted">请求批准</span>
             {currentExecution?.task && !canInspect ? <span className="model-state">{FLASH_MODEL_ID} · 本轮</span>
               : <ModelPicker visible={view === 'workbench'} onSettingsChange={setModelConfiguration} openSettings={() => { setSettingsGroup('models'); setView('settings'); }} />}
@@ -374,6 +399,7 @@ function App() {
             </button>
           </div>
         </section>
+        {draftState.materialError && <p role="alert" className="error-message">{draftState.materialError}<button className="text-button" onClick={() => void draftState.checkMaterials()}>重新核验材料</button></p>}
         {draftState.error ? <p role="alert" className="error-message">{draftState.error}；当前输入不会自动丢弃。<button className="secondary-button" onClick={draftState.retry}>重试草稿保存或读取</button></p>
           : <p role="status" className="muted">{draftState.loading ? '正在读取草稿…' : draftState.saving ? '正在保存草稿…' : '草稿已保存'}</p>}
         {steerNotice?.taskId === workspace.selectedTaskId && steerNotice.turnId === currentExecution?.task?.turnId && <p role="status" className="muted">{steerNotice.message}</p>}

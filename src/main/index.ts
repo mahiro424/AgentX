@@ -3,6 +3,8 @@ import { TaskSearchService } from './services/task-search';
 import { TASK_SEARCH_CHANNEL, TASK_SEARCH_LOCATE_CHANNEL, SEARCH_INDEX_READ_CHANNEL, SEARCH_INDEX_REBUILD_CHANNEL, SEARCH_INDEX_CHANGED_CHANNEL } from '../shared/contracts/search';
 import { createProductTray } from './lifecycle/tray';
 import { readDraft, saveDraft } from './storage/drafts';
+import { MaterialService, pastedImageExtension } from './services/materials';
+import { MATERIAL_CHOOSE_CHANNEL, MATERIAL_DROP_CHANNEL, MATERIAL_CHECK_CHANNEL, MATERIAL_REFRESH_CHANNEL, MATERIAL_PASTE_CHANNEL, MATERIAL_LIMITS } from '../shared/contracts/materials';
 import { DRAFT_READ_CHANNEL, DRAFT_SAVE_CHANNEL } from '../shared/contracts/drafts';
 import { PROJECT_RENAME_CHANNEL, TASK_RENAME_CHANNEL, TASK_PIN_CHANNEL, TASK_ARCHIVE_CHANNEL, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, WORKSPACE_READ_CHANNEL } from '../shared/contracts/projects';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session } from 'electron';
@@ -45,6 +47,8 @@ function showWindow(): void {
   mainWindow?.show(); mainWindow?.focus();
 }
 const models = new ModelService(dataRoot);
+const materials = new MaterialService(dataRoot);
+let choosingMaterials = false;
 const execution = new ExecutionService(dataRoot, app.isPackaged ? process.resourcesPath : path.join(app.getAppPath(), '.cache'), models, () => {
   const task = execution.read().task;
   if (task) search.refreshTask(task.taskId);
@@ -288,6 +292,48 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(DRAFT_READ_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 1);
       return readDraft(dataRoot, args[0]);
+    });
+    ipcMain.handle(MATERIAL_CHOOSE_CHANNEL, async (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      if (!['files', 'directory', 'images'].includes(args[0]) || choosingMaterials) throw new Error('材料选择请求无效或已有选择窗口');
+      choosingMaterials = true;
+      try {
+        const result = await dialog.showOpenDialog(mainWindow!, { title: args[0] === 'directory' ? '添加目录引用' : '添加材料',
+          properties: args[0] === 'directory' ? ['openDirectory', 'multiSelections'] : ['openFile', 'multiSelections'],
+          ...(args[0] === 'images' ? { filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }] } : {}) });
+        return result.canceled ? [] : await materials.register(result.filePaths);
+      } finally { choosingMaterials = false; }
+    });
+    ipcMain.handle(MATERIAL_DROP_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return materials.register(args[0]);
+    });
+    ipcMain.handle(MATERIAL_CHECK_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return materials.check(args[0]);
+    });
+    ipcMain.handle(MATERIAL_REFRESH_CHANNEL, (event, ...args) => {
+      requireProductFrame(event, args.length, 1);
+      return materials.refresh(args[0]);
+    });
+    ipcMain.handle(MATERIAL_PASTE_CHANNEL, async (event, ...args) => {
+      requireProductFrame(event, args.length, 0);
+      const items = await clipboard.read();
+      const images = items.filter(item => item.types.some(type => type.startsWith('image/')));
+      if (!images.length) throw new Error('剪贴板没有可读取的图片，请重新复制图片');
+      if (images.length > MATERIAL_LIMITS.count) throw new Error('剪贴板图片超过 16 项');
+      const prepared: { bytes: Buffer; mime: string }[] = [];
+      for (const item of images) {
+        const mime = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp'].find(type => item.types.includes(type));
+        if (!mime) throw new Error('剪贴板图片格式暂不支持，请保存为 PNG、JPEG 或 WebP 后添加');
+        const blob = await item.getType(mime);
+        if (!(blob instanceof Blob) || blob.size > MATERIAL_LIMITS.imageBytes) throw new Error('剪贴板图片无效或超过 8 MiB');
+        const bytes = Buffer.from(await blob.arrayBuffer()); pastedImageExtension(bytes, mime);
+        prepared.push({ bytes, mime });
+      }
+      const result = [];
+      for (const image of prepared) result.push(await materials.pasteImage(image.bytes, image.mime));
+      return result;
     });
     ipcMain.handle(DRAFT_SAVE_CHANNEL, (event, ...args) => {
       requireProductFrame(event, args.length, 1);

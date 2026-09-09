@@ -7,11 +7,11 @@ export function withDatabase<T>(root: string, action: (database: DatabaseSync) =
   try {
     database = new DatabaseSync(path.join(root, 'agentx.db'));
     const version = database.prepare('PRAGMA user_version').get()?.user_version;
-    if (typeof version !== 'number' || !Number.isInteger(version) || version < 0 || version > 13) throw new Error('unsupported-version');
+    if (typeof version !== 'number' || !Number.isInteger(version) || version < 0 || version > 14) throw new Error('unsupported-version');
     if (version === 0 && database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").get()) throw new Error('unknown-schema');
     database.exec(`PRAGMA foreign_keys=${version < 13 ? 'OFF' : 'ON'}`);
-    if (version < 13) {
-      if (version > 0) database.prepare('VACUUM INTO ?').run(path.join(root, `agentx.before-v13.${randomUUID()}.db`));
+    if (version < 14) {
+      if (version > 0) database.prepare('VACUUM INTO ?').run(path.join(root, `agentx.before-v14.${randomUUID()}.db`));
       database.exec('BEGIN IMMEDIATE');
     }
     if (version === 0) {
@@ -101,8 +101,17 @@ export function withDatabase<T>(root: string, action: (database: DatabaseSync) =
         root_closed_at TEXT, released_at TEXT);
         INSERT INTO runtime_leases_v13 SELECT * FROM runtime_leases;
         DROP TABLE runtime_leases; ALTER TABLE runtime_leases_v13 RENAME TO runtime_leases;`);
+      database.exec('PRAGMA user_version=13;');
+    }
+    if (version < 14) {
+      database.exec(`CREATE TABLE materials (material_id TEXT PRIMARY KEY, record TEXT NOT NULL);
+        CREATE TABLE input_materials (operation_id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(task_id),
+          turn_id TEXT, draft_revision INTEGER NOT NULL CHECK(draft_revision >= 0), material_ids TEXT NOT NULL,
+          kind TEXT NOT NULL CHECK(kind IN ('turn','steer')), acknowledged INTEGER NOT NULL DEFAULT 0 CHECK(acknowledged IN (0,1)));
+        ALTER TABLE drafts ADD COLUMN material_ids TEXT NOT NULL DEFAULT '[]';
+        PRAGMA user_version=14;`);
       if (database.prepare('PRAGMA foreign_key_check').get()) throw new Error('invalid-migration-references');
-      database.exec('PRAGMA user_version=13; COMMIT; PRAGMA foreign_keys=ON;');
+      database.exec('COMMIT; PRAGMA foreign_keys=ON;');
     }
     return action(database);
   } catch (cause) {

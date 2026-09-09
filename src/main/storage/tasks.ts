@@ -2,6 +2,8 @@ import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { EXECUTION_STATES, type TaskSummary, type OrganizedTaskSummary, type TaskRename, type TaskPin, type TaskArchive } from '../../shared/contracts/projects';
 import { withDatabase } from './database';
+import { bindInputMaterials } from './materials';
+import type { FrozenMaterialInput } from '../../shared/contracts/materials';
 import { FLASH_MODEL_ID } from '../../shared/contracts/models';
 import type { ReconciliationIntent } from '../../shared/contracts/reconciliation';
 
@@ -11,6 +13,7 @@ interface SubmissionInput {
   modelId: string;
   configRevision: number;
   credentialRef: string;
+  materials?: FrozenMaterialInput;
 }
 
 function validateSubmission(value: SubmissionInput): void {
@@ -58,6 +61,7 @@ export function beginTaskSubmission(root: string, task: TaskSummary, intent: Sub
     database.prepare(`INSERT INTO execution_intents
       (operation_id,task_id,input_text,model_id,config_revision,credential_ref,created_at,phase) VALUES (?,?,?,?,?,?,?,'prepared')`)
       .run(intent.operationId, task.taskId, intent.text, intent.modelId, intent.configRevision, intent.credentialRef, task.lastActivityAt);
+    bindInputMaterials(database, task.taskId, intent.operationId, intent.materials);
     database.exec('COMMIT');
   });
 }
@@ -123,6 +127,8 @@ export function acknowledgeSubmission(root: string, taskId: string, operationId:
     const intent = database.prepare(`UPDATE execution_intents SET phase='acknowledged', turn_id=?
       WHERE operation_id=? AND task_id=? AND phase='sent' AND turn_id IS NULL`).run(turnId, operationId, taskId);
     if (intent.changes !== 1) throw new Error('invalid-submission-transition');
+    database.prepare('UPDATE input_materials SET turn_id=?,acknowledged=1 WHERE operation_id=? AND task_id=? AND kind=\'turn\'')
+      .run(turnId, operationId, taskId);
     database.exec('COMMIT');
   });
 }
@@ -224,6 +230,7 @@ export function beginTaskContinuation(root: string, previous: TaskSummary, inten
     database.prepare(`INSERT INTO execution_intents
       (operation_id,task_id,input_text,model_id,config_revision,credential_ref,created_at,phase) VALUES (?,?,?,?,?,?,?,'prepared')`)
       .run(intent.operationId, previous.taskId, intent.text, intent.modelId, intent.configRevision, intent.credentialRef, now);
+    bindInputMaterials(database, previous.taskId, intent.operationId, intent.materials);
     database.exec('COMMIT');
   });
 }

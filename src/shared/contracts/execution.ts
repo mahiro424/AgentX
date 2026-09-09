@@ -1,4 +1,5 @@
 import type { TaskSummary } from './projects';
+import type { DraftMaterialInput } from './materials';
 
 export const EXECUTION_READ_CHANNEL = 'agentx:execution-read';
 export const EXECUTION_START_CHANNEL = 'agentx:execution-start';
@@ -15,6 +16,7 @@ export interface ExecutionStart {
   text: string;
   modelId: string;
   configRevision: number;
+  materials?: DraftMaterialInput;
 }
 
 export interface ExecutionControl {
@@ -26,7 +28,7 @@ export interface ExecutionControl {
 
 export interface ExecutionContinue extends ExecutionStart { threadId: string; expectedTurnId: string }
 
-export interface ExecutionSteer extends ExecutionControl { text: string }
+export interface ExecutionSteer extends ExecutionControl { text: string; materials?: DraftMaterialInput }
 export interface ExecutionApproval extends ExecutionControl { approvalToken: string; decision: 'accept' | 'decline' }
 
 export interface ApprovalItem {

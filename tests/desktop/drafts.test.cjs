@@ -11,7 +11,7 @@ test('草稿产品桥：真实 SQLite 重开保存内容，拒绝任意字段和
   stage('首次窗口就绪');
   try {
     const scope = { projectId: null, taskId: null };
-    assert.deepEqual(await page.evaluate(value => window.agentx.getDraft(value), scope), { ...scope, text: '', revision: 0 });
+    assert.deepEqual(await page.evaluate(value => window.agentx.getDraft(value), scope), { ...scope, text: '', revision: 0, materials: [] });
     const saved = await page.evaluate(value => window.agentx.saveDraft(value), { ...scope, text: '未发送的中文草稿\n第二行', expectedRevision: 0 });
     assert.equal(saved.revision, 1);
     stage('草稿写入确认');

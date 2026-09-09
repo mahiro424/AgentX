@@ -186,6 +186,17 @@ h1 { margin: 0; font-size: 24px; line-height: 32px; font-weight: 600; }
 .composer textarea::placeholder { color: var(--text-muted); }
 .composer-toolbar { display: flex; align-items: center; gap: var(--space-control); padding: var(--space-tight) 0 0 var(--space-control); }
 .composer-supplement { display: flex; justify-content: flex-end; }
+.material-list { display: flex; flex-wrap: wrap; gap: var(--space-tight); list-style: none; padding: 0; margin: 0 0 var(--space-tight); max-height: 180px; overflow: auto; }
+.material-chip { display: flex; align-items: center; gap: var(--space-tight); min-width: 0; max-width: 100%; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--surface-subtle); padding: 6px 8px; }
+.material-kind { color: var(--text-secondary); font-size: 12px; flex: none; }
+.material-description { display: flex; flex-direction: column; min-width: 0; }
+.material-description strong { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.material-description span { font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.material-chip[data-failed='true'] .material-description span { color: var(--semantic-error); }
+.material-chip .icon-button { flex: none; }
+.text-button { min-height: 32px; padding: 0 var(--space-tight); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--semantic-info); }
+.text-button:hover:not(:disabled) { background: var(--interaction-hover); }
+.text-button:active:not(:disabled) { background: var(--interaction-selected); }
 .supplement-button { min-height: 32px; padding: 0 var(--space-tight); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--semantic-info); }
 .supplement-button:hover:not(:disabled) { background: var(--interaction-hover); }
 .muted, .model-state { color: var(--text-muted); }

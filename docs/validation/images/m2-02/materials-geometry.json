@@ -1,0 +1,38 @@
+{
+  "windows": [
+    {
+      "theme": "light",
+      "width": 1280,
+      "height": 820,
+      "materials": 2,
+      "inputVisible": true,
+      "menuKeyboard": true
+    },
+    {
+      "theme": "light",
+      "width": 960,
+      "height": 640,
+      "materials": 2,
+      "inputVisible": true,
+      "menuKeyboard": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "height": 820,
+      "materials": 2,
+      "inputVisible": true,
+      "menuKeyboard": true
+    },
+    {
+      "theme": "dark",
+      "width": 960,
+      "height": 640,
+      "materials": 2,
+      "inputVisible": true,
+      "menuKeyboard": true
+    }
+  ],
+  "modelCalls": 0,
+  "missingMaterialVisible": true
+}
