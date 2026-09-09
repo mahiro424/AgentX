@@ -1,0 +1,31 @@
+{
+  "passed": true,
+  "submitted": 2,
+  "model": "deepseek-v4-flash",
+  "taskId": "2b775825-1051-4c28-abe5-679a0e576f7a",
+  "threadId": "01a08682-b6ac-7790-9ba4-8fc40c6d4990",
+  "turns": [
+    "01a08682-b6ec-7ba0-9ead-6dd98b6b4dc4",
+    "01a08683-99bb-72f0-acf6-701da5c95cc0"
+  ],
+  "artifactIds": [
+    "1acf8e15d5b9ca8cc89eff8307ab48de46f87f71d7131f87dc54b423bd633c38",
+    "c422c06940caee9563ef68a6bbfe86328208a2af30124be4d021b295050d253e"
+  ],
+  "originalHashes": [
+    "e8640325cc5df726d0f4b426d97ced06f049105851830e21b8944ca7224af202",
+    "0118c7c6f247ae3d453188f055ac26da67027c1fbff96dd12806b80b9ec9cb5b"
+  ],
+  "originalsUnchanged": true,
+  "manualUnchanged": true,
+  "firstArtifactUnchanged": true,
+  "values": {
+    "办公": 75,
+    "交通": 20,
+    "总额": 95,
+    "税额": 9.5
+  },
+  "formulaStatus": "not-recalculated",
+  "historyRecovered": true,
+  "previewRecovered": true
+}

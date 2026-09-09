@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "verifier": "Python csv + openpyxl",
+  "originalHashesPreserved": true,
+  "deduplicatedRows": 3,
+  "totals": {
+    "办公": 75,
+    "交通": 20,
+    "总额": 95,
+    "税额": 9.5
+  },
+  "formulas": [
+    [
+      "B2",
+      "=SUM(明细!C2:C4)"
+    ]
+  ],
+  "formulaRecalculated": false,
+  "revisedOldSheetsPreserved": true
+}

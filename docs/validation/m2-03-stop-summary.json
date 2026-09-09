@@ -1,0 +1,24 @@
+{
+  "passed": true,
+  "submitted": 1,
+  "model": "deepseek-v4-flash",
+  "taskId": "2b775825-1051-4c28-abe5-679a0e576f7a",
+  "threadId": "01a08682-b6ac-7790-9ba4-8fc40c6d4990",
+  "turnId": "01a0868c-7b0e-78d3-8a3b-8ea45d0e4304",
+  "observedCliPid": 58072,
+  "cliCreatedAt": "/Date(1788963757002)/",
+  "stoppedAt": "2026-09-09T14:22:37.995Z",
+  "ownedCliGone": true,
+  "postStopWrites": false,
+  "partialFiles": [
+    {
+      "name": "stop-1788963745737-0.xlsx",
+      "sha256": "49d7dfaf97bb296e52235755c19913e3d1e273dab3b19430f7acf2f83e663dcb"
+    },
+    {
+      "name": "stop-1788963745737-1.xlsx",
+      "sha256": "e9ef1dd1a24f12a3a0a32c9bbef3bb24fa7fdca0e2c33c987fa017dce0d9334d"
+    }
+  ],
+  "originalsUnchanged": true
+}

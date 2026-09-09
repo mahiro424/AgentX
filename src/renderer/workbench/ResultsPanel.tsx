@@ -15,6 +15,7 @@ export function ResultsPanel({ taskId, turnId, onClose, onPreview }: { taskId: s
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const selected = value?.changes.find(change => change.path === selectedPath);
   const selectedArtifact = value?.artifacts.find(artifact => artifact.path === selectedPath && artifact.turnId === turnId && artifact.sha256 === selected?.after?.sha256);
+  const previewKind = /\.(csv|xlsx)$/i.test(selectedPath ?? '') ? '表格' : '文本';
   async function load() {
     const current = ++sequence.current;
     setLoading(true); setError('');
@@ -49,7 +50,7 @@ export function ResultsPanel({ taskId, turnId, onClose, onPreview }: { taskId: s
         <p className="muted">比较基线：本轮开始 {new Date(value.baselineAt).toLocaleString()} → 当前检查 {new Date(value.observedAt).toLocaleString()}</p>
         <p className="muted">轮次：{value.turnId}<br />目录：{value.directory}</p>
         <p className="muted">变化可能包含外部人工修改，不全部归因于 Agent；这不是轮次结束时的原子快照。</p>
-        <details><summary>检查范围与原有改动</summary><p>排除：{value.excludedNames.join('、')}。单文件上限 1 MiB，累计读取 32 MiB，最多 10000 条目 / 64 层。</p>
+        <details><summary>检查范围与原有改动</summary><p>排除：{value.excludedNames.join('、')}。普通文件上限 1 MiB，CSV/XLSX 上限 8 MiB，累计读取 32 MiB，最多 10000 条目 / 64 层；超过 1 MiB 仅保留指纹，表格另行解析预览。</p>
           {value.baselineGit.status === 'available' ? <><p>本轮开始前已有 Git 改动：{value.baselineGit.changes.length} 项</p>
             <ul>{value.baselineGit.changes.map(change => <li key={change.path}>{change.path} · {change.index}{change.worktree}</li>)}</ul></>
             : <p>{value.baselineGit.message}</p>}</details>
@@ -61,8 +62,8 @@ export function ResultsPanel({ taskId, turnId, onClose, onPreview }: { taskId: s
           return <li key={change.path}><button aria-label={`${label} ${change.path}`} aria-pressed={selectedPath === change.path} onClick={() => setSelectedPath(change.path)}>
             <span>{change.path}</span><span className={change.operation === 'delete' ? 'test-failed' : 'test-passed'}>{label}</span></button></li>;
         })}</ul>}
-        {value.artifacts.length > 0 && <details><summary>已检查文本版本（{value.artifacts.length}）</summary>
-          <section aria-label="已检查文本版本"><p className="muted">保留各次检查的来源和指纹，不是历史内容备份；打开时重新核对实际文件。</p>
+        {value.artifacts.length > 0 && <details><summary>已检查文件版本（{value.artifacts.length}）</summary>
+          <section aria-label="已检查文件版本"><p className="muted">保留各次检查的来源和指纹，不是历史内容备份；打开时重新核对实际文件。</p>
             <ul className="result-files">{value.artifacts.map(artifact => <li key={artifact.resultId}>
               <button disabled={loading || !!error} onClick={event => onPreview(artifact, event.currentTarget)}
                 aria-label={`预览版本：${artifact.path} · ${artifact.turnId} · ${artifact.sha256.slice(0, 8)}`}>
@@ -72,8 +73,8 @@ export function ResultsPanel({ taskId, turnId, onClose, onPreview }: { taskId: s
           </section></details>}
         {selected && <section className="result-file-preview" aria-label="文件原文">
           <h3>{selected.path}</h3><p className="muted">只读 · 轮次 {value.turnId} · {value.directory}/{selected.path}</p>
-          {selectedArtifact && <button className="secondary-button" disabled={loading || !!error} aria-label={`预览文本产物：${selected.path}`}
-            onClick={event => onPreview(selectedArtifact, event.currentTarget)}>预览文本</button>}
+          {selectedArtifact && <button className="secondary-button" disabled={loading || !!error} aria-label={`预览${previewKind}产物：${selected.path}`}
+            onClick={event => onPreview(selectedArtifact, event.currentTarget)}>预览{previewKind}</button>}
           <TextDiff change={selected} />
           <details><summary>本轮开始时的原文</summary><pre>{selected.before ? selected.before.text ?? '二进制或非 UTF-8 文件，不提供文本预览' : '本轮开始时不存在此文件'}</pre></details>
           <details><summary>当前检查时的原文</summary><pre>{selected.after ? selected.after.text ?? '二进制或非 UTF-8 文件，不提供文本预览' : '当前文件已删除'}</pre></details>

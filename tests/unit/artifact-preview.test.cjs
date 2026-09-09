@@ -106,3 +106,54 @@ test('产物引用错误：损坏或缺失不能伪装空结果，路径被目�
   assert.equal(opened, false);
   assert.equal(await fs.readFile(path.join(output + '-original', 'note.txt'), 'utf8'), '可信的已检查字节');
 });
+
+test('表格产物：实际 CSV/XLSX 文件登记版本，按授权 ID 返回工作表，变化与损坏不当成功', async () => {
+  const { Workbook } = require('exceljs');
+  const { readTaskResults } = require('../../src/main/services/task-results.ts');
+  const { readFilePreview } = require('../../src/main/services/file-preview.ts');
+  const value = await fixture(), book = new Workbook();
+  book.addWorksheet('汇总').addRow(['金额', 75]);
+  await fs.writeFile(path.join(value.directory, '统计.xlsx'), Buffer.from(await book.xlsx.writeBuffer()));
+  await fs.writeFile(path.join(value.directory, '明细.csv'), '编号,金额\n0012,30');
+  const result = await readTaskResults(value.root, value.request);
+  assert.equal(result.artifacts.length, 2);
+  for (const artifact of result.artifacts) {
+    const source = { kind: 'result', taskId: value.taskId, resultId: artifact.resultId };
+    const preview = await readFilePreview(value.root, source);
+    assert.equal(preview.status, 'ready'); assert.equal(preview.turnId, value.request.turnId);
+    assert.equal(preview.spreadsheet.format, path.extname(artifact.path).slice(1));
+    assert.equal(preview.version.sha256, artifact.sha256);
+    if (artifact.path.endsWith('.xlsx')) {
+      assert.equal(preview.spreadsheet.sheets[0].rows[0][1].value, 75);
+      await fs.writeFile(preview.path, '不完整的工作簿');
+      const broken = await readFilePreview(value.root, source);
+      assert.equal(broken.status, 'unreadable'); assert.equal(broken.spreadsheet, null);
+      assert.match(broken.message, /失败|ZIP|FILE/);
+    } else {
+      await fs.writeFile(preview.path, '编号,金额\n0012,31');
+      const changed = await readFilePreview(value.root, source);
+      assert.equal(changed.status, 'changed'); assert.equal(changed.spreadsheet, null);
+    }
+  }
+});
+
+test('表格检查范围：1 至 8 MiB 的表格保留版本与预览，普通大文件及超限表格明确不完整', async () => {
+  const { readTaskResults } = require('../../src/main/services/task-results.ts');
+  const { readFilePreview } = require('../../src/main/services/file-preview.ts');
+  const { captureWorkspace, captureGitState } = require('../../src/main/services/workspace-results.ts');
+  const { saveWorkspaceBaseline, readWorkspaceBaseline } = require('../../src/main/storage/results.ts');
+  const value = await fixture(), text = Array(1000).fill('数据' + 'a'.repeat(1200)).join('\n');
+  await fs.writeFile(path.join(value.directory, '大表.csv'), text);
+  await fs.writeFile(path.join(value.directory, '大文本.txt'), text);
+  await fs.writeFile(path.join(value.directory, '超限.csv'), Buffer.alloc(8 * 1024 * 1024 + 1, 65));
+  const result = await readTaskResults(value.root, value.request);
+  const artifact = result.artifacts.find(item => item.path === '大表.csv'); assert.ok(artifact);
+  assert.equal(result.complete, false);
+  assert.deepEqual(result.issues.map(item => item.path).sort(), ['大文本.txt', '超限.csv']);
+  const preview = await readFilePreview(value.root, { kind: 'result', taskId: value.taskId, resultId: artifact.resultId });
+  assert.equal(preview.status, 'ready'); assert.equal(preview.spreadsheet.sheets[0].rowCount, 1000);
+  const binding = { taskId: value.taskId, operationId: randomUUID() };
+  await saveWorkspaceBaseline(value.root, binding, await captureWorkspace(value.directory), await captureGitState(value.directory));
+  const saved = await readWorkspaceBaseline(value.root, binding);
+  assert.equal(saved.snapshot.files[0].sha256, artifact.sha256); assert.equal(saved.snapshot.files[0].text, null);
+});

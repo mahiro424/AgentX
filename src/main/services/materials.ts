@@ -70,7 +70,7 @@ export async function inspectMaterialFile(filename: string, parseOffice = true):
           identity(initial) !== identity(await fs.lstat(canonical, { bigint: true }))) return result({ ...record, status: 'changed', message: '材料在表格解析期间发生变化，请重查' });
       }
       return result({ ...record, status: kind === 'image' ? 'blockedImage' : 'ready',
-        message: kind === 'image' ? '图像能力尚未验证，含图发送已阻断' : kind === 'spreadsheet' ? '可只读预览；表格发送与生成尚未开放' : '可读取；尚不代表 Agent 已读取' }, text, spreadsheet);
+        message: kind === 'image' ? '图像能力尚未验证，含图发送已阻断' : kind === 'spreadsheet' ? '表格可读取；公式未重算，尚不代表 Agent 已读取' : '可读取；尚不代表 Agent 已读取' }, text, spreadsheet);
     } finally { await handle.close(); }
   } catch (cause) {
     const code = (cause as NodeJS.ErrnoException).code;
@@ -108,7 +108,6 @@ export class MaterialService {
     const records = await this.check(ids);
     const blocked = records.find(item => item.status !== 'ready');
     if (blocked) throw new Error(`${blocked.name}：${blocked.message}；未发送本次要求`);
-    if (records.some(item => item.kind === 'spreadsheet')) throw new Error('表格发送与生成尚未开放；可以先检查只读预览，材料和草稿保留');
     return records;
   }
 
@@ -141,7 +140,7 @@ export class MaterialService {
       const current = (await inspectMaterialFile(record.path, false)).record;
       const compared = compareMaterial(record, current);
       // 同版本重查只核验字节；不重复启动解析进程，也不能将原解析失败改写为成功。
-      return record.kind === 'spreadsheet' && compared.status === 'ready' ? { ...compared, status: record.status, message: record.message } : compared;
+      return record.kind === 'spreadsheet' && compared.status === 'ready' && record.status !== 'ready' ? { ...compared, status: record.status, message: record.message } : compared;
     }));
   }
 

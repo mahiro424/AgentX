@@ -124,6 +124,7 @@ export function FilePreviewPanel({ tabs, active, visible, running, select, close
       <p className="muted">只读 · {active.name}</p>
       {value && <details><summary>文件来源与版本</summary><p>{value.path}</p><p>{value.turnId ? `${value.source.kind === 'result' ? '来源轮次' : '最近关联轮次'}：${value.turnId}` : '当前草稿材料，尚无已确认轮次'}<br />所属任务：{value.taskId ?? '当前草稿'}<br />SHA-256：{value.version?.sha256 ?? '无文本版本'}<br />核验时间：{new Date(value.observedAt).toLocaleString()}</p></details>}
       {running && <p role="note">任务仍在运行，文件可能继续变化。</p>}
+      {active.source.kind === 'result' && current.spreadsheet && <p role="note">可读取不等于已验证业务结果；中断或失败轮次的文件可能仅是部分产物，请独立核对。</p>}
       {current.loading && <p className="muted" role="status">正在核验实际文件…</p>}
       {current.error && <p className="error-message" role="alert">{current.error}</p>}
       {!current.error && value && value.status !== 'ready' && <p className="error-message" role="alert">{value.message}</p>}

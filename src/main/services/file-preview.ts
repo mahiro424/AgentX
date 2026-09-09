@@ -13,7 +13,7 @@ export async function readFilePreview(root: string, input: unknown): Promise<Fil
     const source = input as ResultPreviewSource, artifact = await readTaskArtifact(root, source.taskId, source.resultId);
     const filename = path.join(artifact.directory, artifact.path), version = { sha256: artifact.sha256, size: artifact.size };
     const base = { source, name: path.basename(filename), path: filename, taskId: artifact.taskId, turnId: artifact.turnId,
-      operationId: artifact.operationId, version, currentVersion: null, text: null, observedAt: new Date().toISOString() };
+      operationId: artifact.operationId, version, currentVersion: null, text: null, spreadsheet: null, observedAt: new Date().toISOString() };
     try {
       if (await fs.realpath(filename) !== filename || (await fs.lstat(filename)).isSymbolicLink()) return { ...base, status: 'changed', message: '产物路径已变化，未读取替代位置' };
     } catch (cause) {
@@ -25,7 +25,8 @@ export async function readFilePreview(root: string, input: unknown): Promise<Fil
       return { ...base, currentVersion: record.version, status: record.status === 'ready' ? 'changed' : record.status,
         message: record.status === 'ready' ? '产物内容已变化；此标签仍关联原观察版本，请重新检查文件改动以查看新版本' : record.message };
     }
-    return { ...base, currentVersion: record.version, status: 'ready', text: current.text, message: '实际文本与已登记版本一致；变化不全部归因于 Agent' };
+    return { ...base, currentVersion: record.version, status: 'ready', text: current.text, spreadsheet: current.spreadsheet,
+      message: current.spreadsheet ? '实际表格与已登记版本一致；公式未重算，业务数值需核对' : '实际文本与已登记版本一致；变化不全部归因于 Agent' };
   }
   if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 3 ||
     !('kind' in input) || input.kind !== 'material' || !('scope' in input) || !('materialId' in input) || typeof input.materialId !== 'string') throw new Error('文件预览请求无效');

@@ -5,7 +5,7 @@ const path = require('node:path');
 const os = require('node:os');
 require('ts-node').register({ transpileOnly: true });
 
-test('表格材料预览：授权引用解析实际工作表，变化不冒充原版本，工具未接通前不放行发送', async () => {
+test('表格材料预览：授权引用解析实际工作表，核验后可发送，变化不冒充原版本', async () => {
   const { Workbook } = require('exceljs');
   const { MaterialService } = require('../../src/main/services/materials.ts');
   const { saveDraft } = require('../../src/main/storage/drafts.ts');
@@ -28,7 +28,7 @@ test('表格材料预览：授权引用解析实际工作表，变化不冒充�
   const { openFilePreview } = require('../../src/main/services/file-preview.ts');
   assert.equal((await openFilePreview(root, { source, action: 'open' }, host)).status, 'requested');
   assert.deepEqual(opened, [filename]);
-  await assert.rejects(service.requireReady([material.materialId]), /表格.*发送.*尚未开放/);
+  assert.equal((await service.requireReady([material.materialId]))[0].materialId, material.materialId);
   book.getWorksheet('明细').getCell('A1').value = '新内容';
   await fs.writeFile(filename, Buffer.from(await book.xlsx.writeBuffer()));
   const changed = await readFilePreview(root, source);

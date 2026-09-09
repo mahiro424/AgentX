@@ -6,7 +6,7 @@
 
 在 M1 真实代码任务闭环上，让用户整理与找回会话，不绑定代码项目也能添加本地材料，用自然语言处理文档/表格，检查可打开的产物并继续修改；异常后有证据地恢复或明确收尾。沿用 [PRD](../prd/AgentX_Desktop_PRD.md)、[架构](../architecture/AgentX_Architecture.md)、[状态契约](../architecture/AgentX_State_Machines.md)与原采用图，不重画界面或改变引擎边界。
 
-M1 起点为已合入的 `33d6f8e849a8393fd233c43876c9eb0b705400d2`（[PR #19](https://github.com/mahiro424/AgentX/pull/19)）。M2-01 已经 [PR #29](https://github.com/mahiro424/AgentX/pull/29) 合入 m2（`50c1f9c1b61bbb0a8a6243fa903aef7164d800e2`），当时 Windows PR 检查与本地完整回归均为 235/235，原失败记录保留。M2-02 已经 [PR #32](https://github.com/mahiro424/AgentX/pull/32) 合入 m2（`d2560f64b43c91cbedd0cf7335b9379f618bf1bb`），本地完整回归和最终 Windows PR 检查均为 264/264，文本材料的两轮 Flash 续改与重开已有独立核验。当前 M2-03 在独立分支实现，先接通材料表格读取与预览；生成、产物核验与同会话续改仍待完成，不能用只读检查替代完整办公交付。
+M1 起点为已合入的 `33d6f8e849a8393fd233c43876c9eb0b705400d2`（[PR #19](https://github.com/mahiro424/AgentX/pull/19)）。M2-01 已经 [PR #29](https://github.com/mahiro424/AgentX/pull/29) 合入 m2（`50c1f9c1b61bbb0a8a6243fa903aef7164d800e2`），当时 Windows PR 检查与本地完整回归均为 235/235，原失败记录保留。M2-02 已经 [PR #32](https://github.com/mahiro424/AgentX/pull/32) 合入 m2（`d2560f64b43c91cbedd0cf7335b9379f618bf1bb`），本地完整回归和最终 Windows PR 检查均为 264/264，文本材料的两轮 Flash 续改与重开已有独立核验。当前 M2-03 在独立分支接通材料表格、实际读写工具、产物预览与两轮 Flash 续改；独立数值核验与工具停止已通过，最终 PR 检查和包交付待完成，尚未合并。
 
 ## 2. 五个可检查切片
 
