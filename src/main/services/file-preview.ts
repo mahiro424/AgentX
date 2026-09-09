@@ -1,11 +1,32 @@
-import type { FilePreview, MaterialPreviewSource } from '../../shared/contracts/file-preview';
+import type { FilePreview, MaterialPreviewSource, ResultPreviewSource } from '../../shared/contracts/file-preview';
 import { readDraft } from '../storage/drafts';
 import { readInputMaterials } from '../storage/materials';
-import { MaterialService } from './materials';
+import { MaterialService, inspectMaterialFile } from './materials';
+import { readTaskArtifact } from './task-results';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 export async function readFilePreview(root: string, input: unknown): Promise<FilePreview> {
+  if (input && typeof input === 'object' && !Array.isArray(input) && 'kind' in input && input.kind === 'result') {
+    if (Object.keys(input).length !== 3 || !('taskId' in input) || typeof input.taskId !== 'string' ||
+      !('resultId' in input) || typeof input.resultId !== 'string') throw new Error('文件预览请求无效');
+    const source = input as ResultPreviewSource, artifact = await readTaskArtifact(root, source.taskId, source.resultId);
+    const filename = path.join(artifact.directory, artifact.path), version = { sha256: artifact.sha256, size: artifact.size };
+    const base = { source, name: path.basename(filename), path: filename, taskId: artifact.taskId, turnId: artifact.turnId,
+      operationId: artifact.operationId, version, currentVersion: null, text: null, observedAt: new Date().toISOString() };
+    try {
+      if (await fs.realpath(filename) !== filename || (await fs.lstat(filename)).isSymbolicLink()) return { ...base, status: 'changed', message: '产物路径已变化，未读取替代位置' };
+    } catch (cause) {
+      const missing = ['ENOENT', 'ENOTDIR'].includes((cause as NodeJS.ErrnoException).code ?? '');
+      return { ...base, status: missing ? 'missing' : 'unreadable', message: missing ? '产物已移动或删除，来源引用保留' : '产物无法读取，请核对权限或磁盘连接' };
+    }
+    const current = await inspectMaterialFile(filename), { record } = current;
+    if (record.path !== filename || record.status !== 'ready' || record.version?.sha256 !== version.sha256 || record.version.size !== version.size) {
+      return { ...base, currentVersion: record.version, status: record.status === 'ready' ? 'changed' : record.status,
+        message: record.status === 'ready' ? '产物内容已变化；此标签仍关联原观察版本，请重新检查文件改动以查看新版本' : record.message };
+    }
+    return { ...base, currentVersion: record.version, status: 'ready', text: current.text, message: '实际文本与已登记版本一致；变化不全部归因于 Agent' };
+  }
   if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 3 ||
     !('kind' in input) || input.kind !== 'material' || !('scope' in input) || !('materialId' in input) || typeof input.materialId !== 'string') throw new Error('文件预览请求无效');
   const source = input as MaterialPreviewSource;

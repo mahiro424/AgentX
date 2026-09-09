@@ -1,0 +1,46 @@
+{
+  "modelCalls": 0,
+  "source": "已结束的两轮合成 Flash 产物",
+  "geometry": [
+    {
+      "theme": "light",
+      "width": 1280,
+      "height": 820,
+      "labels": [
+        "note.txt · 833d6f09",
+        "note.txt · ce3aade3"
+      ],
+      "panelWithinWindow": true
+    },
+    {
+      "theme": "light",
+      "width": 960,
+      "height": 640,
+      "labels": [
+        "note.txt · 833d6f09",
+        "note.txt · ce3aade3"
+      ],
+      "panelWithinWindow": true
+    },
+    {
+      "theme": "dark",
+      "width": 1280,
+      "height": 820,
+      "labels": [
+        "note.txt · 833d6f09",
+        "note.txt · ce3aade3"
+      ],
+      "panelWithinWindow": true
+    },
+    {
+      "theme": "dark",
+      "width": 960,
+      "height": 640,
+      "labels": [
+        "note.txt · 833d6f09",
+        "note.txt · ce3aade3"
+      ],
+      "panelWithinWindow": true
+    }
+  ]
+}

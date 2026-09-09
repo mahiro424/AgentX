@@ -33,7 +33,7 @@ export function useFilePreviews(scope: DraftScope) {
       const nextScope = { ...scope, taskId }, nextScopeKey = scopeKey(nextScope);
       // 首发确已创建任务后，原草稿授权转入该任务，已打开的材料视图随之迁移。
       setTabs(previous => previous.map(tab => tab.scopeKey === currentScope ? { ...tab, scopeKey: nextScopeKey,
-        source: { ...tab.source, scope: nextScope } } : tab));
+        source: tab.source.kind === 'material' ? { ...tab.source, scope: nextScope } : tab.source } : tab));
       setActiveKeys(previous => ({ ...previous, [nextScopeKey]: previous[currentScope] ?? null, [currentScope]: null }));
     },
   };
@@ -100,11 +100,12 @@ export function FilePreviewPanel({ tabs, active, visible, running, select, close
       }} />}
     <div className="preview-tabs" role="tablist" aria-label="已打开文件" ref={tabList}>{tabs.map(tab => <div key={tab.key} className="preview-tab" data-active={tab.key === active.key}>
       <button role="tab" aria-selected={tab.key === active.key} tabIndex={tab.key === active.key ? 0 : -1} aria-controls="preview-content" onClick={() => select(tab.key)}
+        title={tab.source.kind === 'result' ? `${tab.name} · 结果 ${tab.source.resultId}` : tab.name}
         onKeyDown={event => {
           if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
           event.preventDefault(); const index = tabs.indexOf(tab);
           select(tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + tabs.length) % tabs.length].key);
-        }}>{tab.name}</button><button className="icon-button" aria-label={`关闭标签：${tab.name}`} onClick={() => {
+        }}>{tab.name}{tab.source.kind === 'result' ? ` · ${tab.source.resultId.slice(0, 8)}` : ''}</button><button className="icon-button" aria-label={`关闭标签：${tab.name}${tab.source.kind === 'result' ? ` · ${tab.source.resultId.slice(0, 8)}` : ''}`} onClick={() => {
           close(tab.key);
           if (tab.key !== active.key) tabList.current?.querySelector<HTMLButtonElement>('[aria-selected=true]')?.focus();
         }}>×</button>
@@ -118,12 +119,12 @@ export function FilePreviewPanel({ tabs, active, visible, running, select, close
         <button className="icon-button" aria-label="放大文字" disabled={current.zoom === 200} onClick={() => zoom(current.zoom + 10)}>+</button></div></div>
     <div className="preview-meta">
       <p className="muted">只读 · {active.name}</p>
-      {value && <details><summary>文件来源与版本</summary><p>{value.path}</p><p>{value.turnId ? `最近关联轮次：${value.turnId}` : '当前草稿材料，尚无已确认轮次'}<br />SHA-256：{value.version?.sha256 ?? '无文本版本'}<br />核验时间：{new Date(value.observedAt).toLocaleString()}</p></details>}
+      {value && <details><summary>文件来源与版本</summary><p>{value.path}</p><p>{value.turnId ? `${value.source.kind === 'result' ? '来源轮次' : '最近关联轮次'}：${value.turnId}` : '当前草稿材料，尚无已确认轮次'}<br />所属任务：{value.taskId ?? '当前草稿'}<br />SHA-256：{value.version?.sha256 ?? '无文本版本'}<br />核验时间：{new Date(value.observedAt).toLocaleString()}</p></details>}
       {running && <p role="note">任务仍在运行，文件可能继续变化。</p>}
       {current.loading && <p className="muted" role="status">正在核验实际文件…</p>}
       {current.error && <p className="error-message" role="alert">{current.error}</p>}
       {!current.error && value && value.status !== 'ready' && <p className="error-message" role="alert">{value.message}</p>}
-      {stale && <p role="note">保留上次成功读取的文本，不代表当前文件；请核对材料后重新打开。</p>}
+      {stale && <p role="note">保留上次成功读取的文本，不代表当前文件；{active.source.kind === 'result' ? '请重新检查文件改动，再打开新版本。' : '请核对材料后重新打开。'}</p>}
       {current.action && <p role="status">{current.action}</p>}
     </div>
     <div id="preview-content" role="tabpanel" aria-label={active.name} className="preview-content" tabIndex={0} ref={content}

@@ -20,7 +20,7 @@ export function pastedImageExtension(bytes: Buffer, mime: string): string {
   throw new Error('剪贴板图片格式无效；请保存为 PNG、JPEG 或 WebP 后添加');
 }
 
-async function inspect(filename: string): Promise<{ record: Omit<MaterialRecord, 'materialId'>; text: string | null }> {
+export async function inspectMaterialFile(filename: string): Promise<{ record: Omit<MaterialRecord, 'materialId'>; text: string | null }> {
   const result = (record: Omit<MaterialRecord, 'materialId'>, text: string | null = null) => ({ record, text });
   let record: Omit<MaterialRecord, 'materialId'> = { path: filename, name: path.basename(filename), kind: 'unsupported',
     status: 'unreadable', message: '材料无法读取，请核对访问权限', version: null };
@@ -118,7 +118,7 @@ export class MaterialService {
     if (!Array.isArray(paths) || paths.length > MATERIAL_LIMITS.count || paths.some(value => !validPath(value))) throw new Error('材料路径无效，单次最多添加 16 项');
     const result: MaterialRecord[] = [];
     for (const filename of new Set(paths as string[])) {
-      const item = storeMaterial(this.root, { ...(await inspect(filename)).record, materialId: randomUUID() });
+      const item = storeMaterial(this.root, { ...(await inspectMaterialFile(filename)).record, materialId: randomUUID() });
       if (!result.some(previous => previous.path === item.path || (item.version && previous.version?.identity === item.version.identity))) result.push(item);
     }
     return result;
@@ -126,11 +126,11 @@ export class MaterialService {
 
   async check(ids: unknown): Promise<MaterialRecord[]> {
     const records = readMaterials(this.root, ids);
-    return Promise.all(records.map(async record => compareMaterial(record, (await inspect(record.path)).record)));
+    return Promise.all(records.map(async record => compareMaterial(record, (await inspectMaterialFile(record.path)).record)));
   }
 
   async preview(id: string) {
-    const [record] = readMaterials(this.root, [id]), observed = await inspect(record.path);
+    const [record] = readMaterials(this.root, [id]), observed = await inspectMaterialFile(record.path);
     const material = compareMaterial(record, observed.record);
     return { material, currentVersion: observed.record.version, text: material.status === 'ready' ? observed.text : null,
       observedAt: new Date().toISOString() };

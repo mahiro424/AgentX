@@ -415,6 +415,7 @@ function App() {
       </main>
       <FilePreviewPanel {...previews} visible={view === 'workbench' && !!previews.active} running={showStop} />
       {resultsOpen && !previews.active && selectedTask?.turnId && <ResultsPanel key={`${selectedTask.taskId}:${selectedTask.turnId}`} taskId={selectedTask.taskId} turnId={selectedTask.turnId}
+        onPreview={(artifact, trigger) => previews.open({ kind: 'result', taskId: artifact.taskId, resultId: artifact.resultId }, artifact.path.split('/').at(-1)!, resultsTrigger.current ?? trigger)}
         onClose={() => { setResultsTask(null); resultsTrigger.current?.focus(); }} />}
       {outputItem && !previews.active && <OutputPanel key={`${outputSelection!.taskId}:${outputItem.threadId}:${outputItem.turnId}:${outputItem.itemId}`} item={outputItem}
         active={!hasCurrentHistory && outputItem.turnId === currentExecution?.task?.turnId && !execution.error && showStop}
