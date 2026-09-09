@@ -34,6 +34,4 @@ jobs:
       - name: 打包真实 Windows x64 应用
         run: npm run package
       - name: 独立临时数据与无密钥桌面测试
-        env:
-          AGENTX_CI_OBSERVE: '1'
         run: npm test
