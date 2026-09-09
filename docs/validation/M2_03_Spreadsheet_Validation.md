@@ -109,6 +109,7 @@
 - 072/073：提交 `96d5742` 重新打包并更新原 `out/AgentX-win32-x64`，没有终止用户进程；app.asar SHA-256 为 `a0d1061f57213d30d3eb1c025d96378afc9d56cf982e301d92ccb643f53a54d2`，旧包保留于 `out/AgentX-win32-x64-before-20260909-224113`。针对原目录实际工具/材料/结果/大输出 STOP 共 16/16 通过。
 - 075/076：`96d5742` 的 Windows PR [34365115203](https://github.com/mahiro424/AgentX/actions/runs/34365115203) 与 push [34365109677](https://github.com/mahiro424/AgentX/actions/runs/34365109677) 未通过；前者为随包 CLI 测试整体 45 秒超时（287 通过、1 取消），后者第一条 PowerShell read 35 秒超时、无回执。不是 GUI 退出测试，也没有解析失败证据；文档 CI 通过不替代桌面 CI。
 - 077：增加仅测试侧的 shell-enter/before-exe/after-exe 阶段观测和子进程 AbortSignal，保持原 35/45 秒限时、不扩大环境白名单；同名拒绝断言收紧为实际 EEXIST，不再把任意超时也算同名保护成功。本地定向 1/1，三次命令均约 1 秒；等待 CI 分阶段证据，不先修改产品运行时或直接重跑碰运气。
+- 079/080：观测提交 `8fcdbba` 的 PR/push CI 均在 shell-enter/before-exe 后 35 秒无输出超时，没有 after-exe；排除脚本尚未开始和 GUI 清理假设，但仍不能仅凭此断定 CLI 已开始。081 单变量将测试 PowerShell 的 PSModulePath 限定到系统内置 Modules，检验 Out-String 模块发现阻塞假设；不引入 PATH Node、用户插件/模块或产品权限变化。本地 1/1，CI 结果待核验。
 
 ### 最终状态覆盖
 

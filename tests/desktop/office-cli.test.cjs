@@ -15,14 +15,16 @@ test('打包表格命令：真实 Windows PowerShell 仅靠随包 Electron 运�
   const source = path.join(cwd, "材料 '中文.csv"), bytes = Buffer.from('编号,金额\n0012,30\n0013,45');
   await fs.writeFile(source, bytes);
   const quoted = value => `'${value.replaceAll("'", "''")}'`;
+  const shellDirectory = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0');
   const run = async args => {
     const started = Date.now(); t.diagnostic(`表格命令 ${args[0]}：开始`);
     const script = `[Console]::Error.WriteLine('shell-enter');$ErrorActionPreference='Stop';[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);$env:ELECTRON_RUN_AS_NODE='1';[Console]::Error.WriteLine('before-exe'); & ${[exe, '--max-old-space-size=192', cli, ...args].map(quoted).join(' ')} | Out-String;$code=$LASTEXITCODE;[Console]::Error.WriteLine('after-exe');exit $code`;
     try {
-      const result = await promisify(execFile)(path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
+      const result = await promisify(execFile)(path.join(shellDirectory, 'powershell.exe'),
         ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
         { cwd, windowsHide: true, timeout: 35000, signal: t.signal, maxBuffer: 1024 * 1024,
-          env: Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(SystemRoot|WINDIR|TEMP|TMP|PATHEXT)$/i.test(key))) });
+          env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(SystemRoot|WINDIR|TEMP|TMP|PATHEXT)$/i.test(key))),
+            PSModulePath: path.join(shellDirectory, 'Modules') } });
       t.diagnostic(`表格命令 ${args[0]}：${Date.now() - started} ms；${result.stderr.trim()}`); return result;
     } catch (error) {
       t.diagnostic(`表格命令 ${args[0]} 失败：${Date.now() - started} ms；code=${error.code} killed=${error.killed} signal=${error.signal}；stderr=${String(error.stderr ?? '').slice(-1500)}；stdoutBytes=${Buffer.byteLength(error.stdout ?? '')}`);
