@@ -63,9 +63,9 @@ def main():
         errors.append("PRD: M1 的 72 条场景检查缺失或重复")
     m2_expected = {
         "M2-01": "default editing pinned archived archiveBlocked search matches indexing missingSource emptyError keyboard",
-        "M2-02": "independentDraft choosing reading ready failedMaterial blockedImage sending",
-        "M2-03": "readingOffice generating validating unsupportedOffice partialOffice",
-        "M2-04": "opened document spreadsheet pdfImage unavailablePreview revision compact",
+        "M2-02": "independentDraft choosing reading ready failedMaterial blockedImage sending generatingText validatingText opened textPreview unavailablePreview revision compact",
+        "M2-03": "readingOffice generating validating unsupportedOffice partialOffice spreadsheet revision compact",
+        "M2-04": "readingDocument generating validating unsupportedDocument partialDocument document pdfImage revision compact",
         "M2-05": "reconciling residual resolved missingHistory unresolved nextWork",
     }
     m2_sources = []
@@ -75,7 +75,7 @@ def main():
             m2_sources.append((cells[0], cells[1]))
     expected = {(key, state) for key, states in m2_expected.items() for state in states.split()}
     if set(m2_sources) != expected or len(m2_sources) != len(expected):
-        errors.append("PRD: M2 的 36 条场景检查缺失、变化或重复")
+        errors.append(f"PRD: M2 的 {len(expected)} 条场景检查缺失、变化或重复")
     print(json.dumps({"文档": len(documents), "仓库内链接": links, "M1 场景": len(sources),
                      "M2 场景": len(m2_sources), "错误": errors}, ensure_ascii=False, indent=2))
     if errors:
