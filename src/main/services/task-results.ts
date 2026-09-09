@@ -1,7 +1,10 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import type { TaskResults } from '../../shared/contracts/results';
+import type { TaskSummary } from '../../shared/contracts/projects';
 import { readWorkspace } from '../storage/projects';
-import { readTurnOperation } from '../storage/tasks';
+import { readTurnOperation, readSubmissionIntent } from '../storage/tasks';
+import { listArtifacts, readArtifact, saveArtifact, type ArtifactRecord } from '../storage/artifacts';
 import { readWorkspaceBaseline } from '../storage/results';
 import { captureWorkspace, compareWorkspaceSnapshots } from './workspace-results';
 
@@ -26,7 +29,37 @@ export async function readTaskResults(root: string, input: unknown): Promise<Tas
   const after = await captureWorkspace(task.directory);
   const current = readWorkspace(root).tasks.find(value => value.taskId === task.taskId);
   if (current?.turnId !== task.turnId || current.executionState !== task.executionState) throw new Error('检查期间轮次状态已变化，请重新核对');
+  const compared = compareWorkspaceSnapshots(baseline.snapshot, after);
+  for (const change of compared.changes) {
+    const file = change.after;
+    if (!file || file.text === null || !['.txt', '.md', '.markdown'].includes(path.extname(file.path).toLowerCase())) continue;
+    await saveArtifact(root, { taskId: task.taskId, threadId: task.threadId, turnId: input.turnId, operationId,
+      directory: task.directory, path: file.path, sha256: file.sha256, size: file.size, observedAt: after.capturedAt });
+  }
+  const artifacts = await listArtifacts(root, task.taskId);
+  for (const artifact of artifacts) requireArtifactBinding(root, task, artifact);
+  const latest = readWorkspace(root).tasks.find(value => value.taskId === task.taskId);
+  if (latest?.turnId !== task.turnId || latest.executionState !== task.executionState) throw new Error('检查期间轮次状态已变化，请重新核对');
   return { taskId: task.taskId, threadId: task.threadId, turnId: input.turnId, operationId, directory: task.directory,
     executionState: task.executionState as TaskResults['executionState'], baselineAt: baseline.snapshot.capturedAt, observedAt: after.capturedAt,
-    ...compareWorkspaceSnapshots(baseline.snapshot, after), excludedNames: after.excludedNames, baselineGit: baseline.git };
+    ...compared, artifacts: artifacts.map(({ version: _version, directory: _directory, ...reference }) => reference), excludedNames: after.excludedNames, baselineGit: baseline.git };
+}
+
+function requireArtifactBinding(root: string, task: TaskSummary, value: ArtifactRecord) {
+  const intent = readSubmissionIntent(root, value.operationId);
+  if (task.taskId !== value.taskId || task.threadId !== value.threadId || task.directory !== value.directory ||
+    readTurnOperation(root, task.taskId, value.turnId) !== value.operationId || intent?.taskId !== task.taskId || intent.phase !== 'settled') {
+    throw new Error('产物引用与已确认轮次不匹配，未读取文件');
+  }
+}
+
+export async function readTaskArtifact(root: string, taskId: string, resultId: string) {
+  const task = readWorkspace(root).tasks.find(value => value.taskId === taskId);
+  if (!task) throw new Error('产物所属任务不存在');
+  let value: ArtifactRecord;
+  try { value = await readArtifact(root, taskId, resultId); }
+  catch (cause) { if ((cause as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('结果引用缺失，无法核对产物来源'); throw cause; }
+  requireArtifactBinding(root, task, value);
+  if (await fs.realpath(task.directory) !== task.directory) throw new Error('产物工作目录已变化，未读取替代位置');
+  return value;
 }

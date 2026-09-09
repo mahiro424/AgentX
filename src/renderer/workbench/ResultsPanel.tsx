@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TaskResults } from '../../shared/contracts/results';
+import type { ArtifactReference } from '../../shared/contracts/artifacts';
 import { TextDiff } from './TextDiff';
 
-export function ResultsPanel({ taskId, turnId, onClose }: { taskId: string; turnId: string; onClose: () => void }) {
+export function ResultsPanel({ taskId, turnId, onClose, onPreview }: { taskId: string; turnId: string; onClose: () => void;
+  onPreview: (artifact: ArtifactReference, trigger: HTMLButtonElement) => void }) {
   const sequence = useRef(0);
   const closeButton = useRef<HTMLButtonElement>(null);
   const [value, setValue] = useState<TaskResults | null>(null);
@@ -12,6 +14,7 @@ export function ResultsPanel({ taskId, turnId, onClose }: { taskId: string; turn
   const [width, setWidth] = useState(440);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const selected = value?.changes.find(change => change.path === selectedPath);
+  const selectedArtifact = value?.artifacts.find(artifact => artifact.path === selectedPath && artifact.turnId === turnId && artifact.sha256 === selected?.after?.sha256);
   async function load() {
     const current = ++sequence.current;
     setLoading(true); setError('');
@@ -58,8 +61,19 @@ export function ResultsPanel({ taskId, turnId, onClose }: { taskId: string; turn
           return <li key={change.path}><button aria-label={`${label} ${change.path}`} aria-pressed={selectedPath === change.path} onClick={() => setSelectedPath(change.path)}>
             <span>{change.path}</span><span className={change.operation === 'delete' ? 'test-failed' : 'test-passed'}>{label}</span></button></li>;
         })}</ul>}
+        {value.artifacts.length > 0 && <details><summary>已检查文本版本（{value.artifacts.length}）</summary>
+          <section aria-label="已检查文本版本"><p className="muted">保留各次检查的来源和指纹，不是历史内容备份；打开时重新核对实际文件。</p>
+            <ul className="result-files">{value.artifacts.map(artifact => <li key={artifact.resultId}>
+              <button disabled={loading || !!error} onClick={event => onPreview(artifact, event.currentTarget)}
+                aria-label={`预览版本：${artifact.path} · ${artifact.turnId} · ${artifact.sha256.slice(0, 8)}`}>
+                <span>{artifact.path}<br /><small>轮次 {artifact.turnId}<br />{new Date(artifact.observedAt).toLocaleString()}</small></span>
+                <span>{artifact.sha256.slice(0, 8)}</span>
+              </button></li>)}</ul>
+          </section></details>}
         {selected && <section className="result-file-preview" aria-label="文件原文">
           <h3>{selected.path}</h3><p className="muted">只读 · 轮次 {value.turnId} · {value.directory}/{selected.path}</p>
+          {selectedArtifact && <button className="secondary-button" disabled={loading || !!error} aria-label={`预览文本产物：${selected.path}`}
+            onClick={event => onPreview(selectedArtifact, event.currentTarget)}>预览文本</button>}
           <TextDiff change={selected} />
           <details><summary>本轮开始时的原文</summary><pre>{selected.before ? selected.before.text ?? '二进制或非 UTF-8 文件，不提供文本预览' : '本轮开始时不存在此文件'}</pre></details>
           <details><summary>当前检查时的原文</summary><pre>{selected.after ? selected.after.text ?? '二进制或非 UTF-8 文件，不提供文本预览' : '当前文件已删除'}</pre></details>

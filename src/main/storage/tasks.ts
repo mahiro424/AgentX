@@ -2,6 +2,8 @@ import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { EXECUTION_STATES, type TaskSummary, type OrganizedTaskSummary, type TaskRename, type TaskPin, type TaskArchive } from '../../shared/contracts/projects';
 import { withDatabase } from './database';
+import { bindInputMaterials } from './materials';
+import type { FrozenMaterialInput } from '../../shared/contracts/materials';
 import { FLASH_MODEL_ID } from '../../shared/contracts/models';
 import type { ReconciliationIntent } from '../../shared/contracts/reconciliation';
 
@@ -11,6 +13,7 @@ interface SubmissionInput {
   modelId: string;
   configRevision: number;
   credentialRef: string;
+  materials?: FrozenMaterialInput;
 }
 
 function validateSubmission(value: SubmissionInput): void {
@@ -23,7 +26,7 @@ function validateSubmission(value: SubmissionInput): void {
 function validateTask(value: TaskSummary): TaskSummary {
   const text = (field: unknown, limit: number) => typeof field === 'string' && field.trim().length > 0 && field.length <= limit && !/[\u0000-\u001f\u007f]/u.test(field);
   const time = (field: unknown) => typeof field === 'string' && Number.isFinite(Date.parse(field)) && new Date(field).toISOString() === field;
-  if (!text(value.taskId, 128) || !text(value.projectId, 128) || !text(value.title, 500) || !text(value.directory, 32767) || !path.isAbsolute(value.directory) ||
+  if (!text(value.taskId, 128) || (value.projectId !== null && !text(value.projectId, 128)) || !text(value.title, 500) || !text(value.directory, 32767) || !path.isAbsolute(value.directory) ||
       !time(value.lastActivityAt) || !time(value.observedAt) || !EXECUTION_STATES.includes(value.executionState) ||
       (value.threadId !== null && !text(value.threadId, 512)) || (value.turnId !== null && (!value.threadId || !text(value.turnId, 512)))) throw new Error('invalid-task-record');
   return value;
@@ -32,12 +35,17 @@ function validateTask(value: TaskSummary): TaskSummary {
 // 由 Main 执行协调模块保存产品记录；不向 Renderer 暴露造会话或改执行状态的接口。
 export function createTaskRecord(root: string, value: TaskSummary): void {
   validateTask(value);
-  withDatabase(root, database => insertTask(database, value));
+  withDatabase(root, database => insertTask(database, value, root));
 }
 
-function insertTask(database: DatabaseSync, value: TaskSummary): void {
-  const project = database.prepare('SELECT directory FROM projects WHERE project_id=?').get(value.projectId);
-  if (!project || project.directory !== value.directory) throw new Error('invalid-project-binding');
+function insertTask(database: DatabaseSync, value: TaskSummary, root: string): void {
+  if (value.projectId !== null) {
+    const project = database.prepare('SELECT directory FROM projects WHERE project_id=?').get(value.projectId);
+    if (!project || project.directory !== value.directory) throw new Error('invalid-project-binding');
+  } else if (!/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value.taskId) ||
+      value.directory !== path.join(root, 'workspaces', value.taskId)) {
+    throw new Error('invalid-independent-directory');
+  }
   database.prepare(`INSERT INTO tasks (task_id,project_id,title,directory,created_at,last_activity_at,observed_at,execution_state,thread_id,turn_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(value.taskId, value.projectId, value.title,
     value.directory, value.lastActivityAt, value.lastActivityAt, value.observedAt, value.executionState, value.threadId, value.turnId);
@@ -48,11 +56,12 @@ export function beginTaskSubmission(root: string, task: TaskSummary, intent: Sub
   if (task.executionState !== 'submitting' || task.threadId !== null || task.turnId !== null) throw new Error('invalid-first-submission');
   withDatabase(root, database => {
     database.exec('BEGIN IMMEDIATE');
-    insertTask(database, task);
+    insertTask(database, task, root);
     // 显式列出产品元数据；即使调用者带了内部凭据快照，也不序列化其中的明文 Key。
     database.prepare(`INSERT INTO execution_intents
       (operation_id,task_id,input_text,model_id,config_revision,credential_ref,created_at,phase) VALUES (?,?,?,?,?,?,?,'prepared')`)
       .run(intent.operationId, task.taskId, intent.text, intent.modelId, intent.configRevision, intent.credentialRef, task.lastActivityAt);
+    bindInputMaterials(database, task.taskId, intent.operationId, intent.materials);
     database.exec('COMMIT');
   });
 }
@@ -118,6 +127,8 @@ export function acknowledgeSubmission(root: string, taskId: string, operationId:
     const intent = database.prepare(`UPDATE execution_intents SET phase='acknowledged', turn_id=?
       WHERE operation_id=? AND task_id=? AND phase='sent' AND turn_id IS NULL`).run(turnId, operationId, taskId);
     if (intent.changes !== 1) throw new Error('invalid-submission-transition');
+    database.prepare('UPDATE input_materials SET turn_id=?,acknowledged=1 WHERE operation_id=? AND task_id=? AND kind=\'turn\'')
+      .run(turnId, operationId, taskId);
     database.exec('COMMIT');
   });
 }
@@ -128,7 +139,7 @@ export function readTaskRecords(database: DatabaseSync): TaskSummary[] {
 
 function taskFromRow(row: Record<string, unknown>): TaskSummary {
   return validateTask({
-    taskId: row.task_id as string, projectId: row.project_id as string, title: row.title as string, directory: row.directory as string,
+    taskId: row.task_id as string, projectId: row.project_id as string | null, title: row.title as string, directory: row.directory as string,
     lastActivityAt: row.last_activity_at as string, observedAt: row.observed_at as string, executionState: row.execution_state as TaskSummary['executionState'],
     threadId: row.thread_id as string | null, turnId: row.turn_id as string | null,
   });
@@ -212,13 +223,14 @@ export function beginTaskContinuation(root: string, previous: TaskSummary, inten
   withDatabase(root, database => {
     database.exec('BEGIN IMMEDIATE');
     const task = database.prepare(`UPDATE tasks SET execution_state='submitting', turn_id=NULL, observed_at=?, last_activity_at=?
-      WHERE task_id=? AND thread_id=? AND turn_id=? AND execution_state=? AND project_id=? AND directory=? AND archived_at IS NULL
+      WHERE task_id=? AND thread_id=? AND turn_id=? AND execution_state=? AND project_id IS ? AND directory=? AND archived_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM execution_intents WHERE task_id=? AND phase<>'settled')`)
       .run(now, now, previous.taskId, previous.threadId, previous.turnId, previous.executionState, previous.projectId, previous.directory, previous.taskId);
     if (task.changes !== 1) throw new Error('invalid-continuation-binding');
     database.prepare(`INSERT INTO execution_intents
       (operation_id,task_id,input_text,model_id,config_revision,credential_ref,created_at,phase) VALUES (?,?,?,?,?,?,?,'prepared')`)
       .run(intent.operationId, previous.taskId, intent.text, intent.modelId, intent.configRevision, intent.credentialRef, now);
+    bindInputMaterials(database, previous.taskId, intent.operationId, intent.materials);
     database.exec('COMMIT');
   });
 }

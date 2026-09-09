@@ -72,14 +72,14 @@ test('error：读取失败可重试，草稿不因错误或重试丢失', { time
   assert.equal(await draft.inputValue(), '错误时也要保留这份草稿');
 });
 
-test('disabled：未选项目有草稿仍不能发送，显示原因且不暴露未接入入口', { timeout: 20000 }, async t => {
+test('disabled：未配置模型有草稿仍不能发送，显示原因且不暴露未接入入口', { timeout: 20000 }, async t => {
   const { app, page } = await launch();
   t.after(() => app.close());
   const draft = page.getByRole('textbox', { name: '任务要求' });
   await draft.fill('请修复项目');
   await draft.press('Control+Enter');
   assert.equal(await page.getByRole('button', { name: '发送', exact: true }).isDisabled(), true);
-  await page.getByRole('note').filter({ hasText: '请先选择本地项目' }).waitFor({ timeout: 2000 });
+  await page.getByRole('note').filter({ hasText: '请先启用模型连接并保存 API Key' }).waitFor({ timeout: 2000 });
   for (const name of ['项目管理', '全部任务', '添加附件', '完全访问']) {
     assert.equal(await page.getByRole('button', { name, exact: true }).count(), 0);
   }
@@ -222,7 +222,7 @@ test('IPC：仅暴露产品桥，拒绝非法偏好且不更改原配置', { tim
   const { app, page, data } = await launch();
   t.after(() => app.close());
   const surface = await page.evaluate(() => ({ keys: Object.keys(window.agentx).sort(), frozen: Object.isFrozen(window.agentx), nodeAccess: typeof window.require }));
-  assert.deepEqual(surface, { keys: ['answerExecutionApproval', 'answerExit', 'chooseProject', 'continueExecution', 'copyOutput', 'fetchModelCatalog', 'getAppInfo', 'getDraft', 'getExecution', 'getExitState', 'getModelSettings', 'getPreferences', 'getReconciliation', 'getSearchIndexState', 'getTaskHistory', 'getTaskResults', 'getWorkspace', 'locateSearchHit', 'onExecutionChanged', 'onExitChanged', 'onModelSettingsChanged', 'onSearchIndexChanged', 'onWorkspaceChanged', 'rebuildSearchIndex', 'renameProject', 'renameTask', 'revealModelKey', 'saveDraft', 'saveModelKey', 'savePreferences', 'searchTasks', 'setActiveModel', 'setModelConnectionEnabled', 'setModelSettingsVisible', 'setSelectedModels', 'setTaskArchived', 'setTaskPinned', 'startExecution', 'steerExecution', 'stopExecution', 'testModel'], frozen: true, nodeAccess: 'undefined' });
+  assert.deepEqual(surface, { keys: ['addDroppedMaterials', 'answerExecutionApproval', 'answerExit', 'checkMaterials', 'chooseMaterials', 'chooseProject', 'continueExecution', 'copyOutput', 'fetchModelCatalog', 'getAppInfo', 'getDraft', 'getExecution', 'getExitState', 'getModelSettings', 'getPreferences', 'getReconciliation', 'getSearchIndexState', 'getTaskHistory', 'getTaskResults', 'getWorkspace', 'locateSearchHit', 'onExecutionChanged', 'onExitChanged', 'onModelSettingsChanged', 'onSearchIndexChanged', 'onWorkspaceChanged', 'openFilePreview', 'pasteMaterialImage', 'readFilePreview', 'rebuildSearchIndex', 'refreshMaterial', 'renameProject', 'renameTask', 'revealModelKey', 'saveDraft', 'saveModelKey', 'savePreferences', 'searchTasks', 'setActiveModel', 'setModelConnectionEnabled', 'setModelSettingsVisible', 'setSelectedModels', 'setTaskArchived', 'setTaskPinned', 'startExecution', 'steerExecution', 'stopExecution', 'testModel'], frozen: true, nodeAccess: 'undefined' });
   await page.evaluate(() => window.agentx.savePreferences({ theme: 'light', zoom: 1 }));
   const previous = await fs.readFile(path.join(data, 'config.json'), 'utf8');
   for (const invalid of [null, [], { theme: 'dark', zoom: 2 }, { theme: 'unknown', zoom: 1 }, { theme: 'dark', zoom: 1, extra: true }]) {

@@ -69,6 +69,24 @@ test('搜索隐私：只投影可见字段，剔除已识别密钥与认证头�
   assert.deepEqual(f.readWorkspace(f.root), f.before);
 });
 
+test('材料搜索隐私：真实材料使用后，工具输出和助手引用不自动进入正文索引，用户要求仍可定位', async () => {
+  const f = await fixture();
+  const { MaterialService } = require('../../src/main/services/materials.ts');
+  const { bindInputMaterials } = require('../../src/main/storage/materials.ts');
+  const { withDatabase } = require('../../src/main/storage/database.ts');
+  const filename = path.join(f.root, 'private-material.txt'); await fs.writeFile(filename, '材料独有正文');
+  const records = await new MaterialService(f.root).register([filename]);
+  withDatabase(f.root, db => bindInputMaterials(db, f.task.taskId, randomUUID(), { revision: 1, records }, 'steer', f.task.turnId));
+  f.history.turns[0].items[1].text = '材料独有正文';
+  await f.service.rebuild();
+  const query = query => f.service.query({ query, scope: 'body', projectId: null, includeArchived: false });
+  assert.equal((await query('材料独有正文')).results.length, 0);
+  const visible = await query('请核对季度收入'); assert.equal(visible.results.length, 1);
+  assert.match(visible.coverage.issues[0].reason, /材料/);
+  assert.equal((await fs.readFile(path.join(f.root, 'cache', 'search.sqlite'))).includes(Buffer.from('材料独有正文')), false);
+  assert.equal((await f.service.locate({ taskId: f.task.taskId, ...visible.results[0].source })).history.taskId, f.task.taskId);
+});
+
 test('搜索缓存归属：拒绝目录链接和数据库硬链接，查询与重建均不改变外部缓存', async () => {
   for (const mode of ['directory', 'hardlink', 'journal', 'wal', 'shm']) {
     const f = await fixture(), external = await fixture();

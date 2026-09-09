@@ -16,8 +16,8 @@ test('草稿存储：按项目和会话隔离，重新读取保留文本，过�
     lastActivityAt: now, observedAt: now, executionState: 'completed', threadId: 'existing-thread', turnId: 'existing-turn' });
   const scopes = [{ projectId: null, taskId: null }, { projectId: project.projectId, taskId: null }, { projectId: project.projectId, taskId }];
   for (const [i, scope] of scopes.entries()) {
-    assert.deepEqual(readDraft(root, scope), { ...scope, text: '', revision: 0 });
-    assert.deepEqual(saveDraft(root, { ...scope, text: `草稿 ${i}\n保留换行`, expectedRevision: 0 }), { ...scope, text: `草稿 ${i}\n保留换行`, revision: 1 });
+    assert.deepEqual(readDraft(root, scope), { ...scope, text: '', revision: 0, materials: [] });
+    assert.deepEqual(saveDraft(root, { ...scope, text: `草稿 ${i}\n保留换行`, expectedRevision: 0 }), { ...scope, text: `草稿 ${i}\n保留换行`, revision: 1, materials: [] });
   }
   for (const [i, scope] of scopes.entries()) assert.equal(readDraft(root, scope).text, `草稿 ${i}\n保留换行`);
   assert.throws(() => saveDraft(root, { ...scopes[1], text: '过期覆盖', expectedRevision: 0 }), /草稿|记录/);
@@ -36,10 +36,10 @@ test('草稿迁移：v6 一致性备份保留发送意图，新表创建后原�
   const root = await fs.mkdtemp(path.resolve('.local-validation/m1-04/draft-migration-'));
   const project = associateProject(root, root).project;
   const previous = new DatabaseSync(path.join(root, 'agentx.db'));
-  try { previous.exec('ALTER TABLE tasks DROP COLUMN archived_at; ALTER TABLE tasks DROP COLUMN pinned_at; ALTER TABLE tasks DROP COLUMN organization_revision; DROP TABLE runtime_leases; DROP TABLE drafts; DROP INDEX execution_intents_turn; ALTER TABLE execution_intents DROP COLUMN turn_id; PRAGMA user_version=6'); } finally { previous.close(); }
+  try { previous.exec('DROP TABLE input_materials; DROP TABLE materials; ALTER TABLE drafts DROP COLUMN material_ids; ALTER TABLE tasks DROP COLUMN archived_at; ALTER TABLE tasks DROP COLUMN pinned_at; ALTER TABLE tasks DROP COLUMN organization_revision; DROP TABLE runtime_leases; DROP TABLE drafts; DROP INDEX execution_intents_turn; ALTER TABLE execution_intents DROP COLUMN turn_id; PRAGMA user_version=6'); } finally { previous.close(); }
   assert.equal(readDraft(root, { projectId: project.projectId, taskId: null }).revision, 0);
   assert.deepEqual(readWorkspace(root).projects, [project]);
-  const backups = (await fs.readdir(root)).filter(name => /^agentx\.before-v12\..+\.db$/.test(name));
+  const backups = (await fs.readdir(root)).filter(name => /^agentx\.before-v14\..+\.db$/.test(name));
   assert.equal(backups.length, 1);
   const saved = new DatabaseSync(path.join(root, backups[0]), { readOnly: true });
   try {

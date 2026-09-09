@@ -1,5 +1,8 @@
 import { PROJECT_RENAME_CHANNEL, type ProjectRename, type ProjectRecord, PROJECT_CHOOSE_CHANNEL, WORKSPACE_CHANGED_CHANNEL, type ProjectOperation, type ProjectChoice, WORKSPACE_READ_CHANNEL, type WorkspaceSnapshot } from '../shared/contracts/projects';
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { FILE_PREVIEW_READ_CHANNEL, FILE_PREVIEW_OPEN_CHANNEL, type FilePreviewSource, type FilePreviewOpen, type FilePreview } from '../shared/contracts/file-preview';
+import { MATERIAL_CHOOSE_CHANNEL, MATERIAL_DROP_CHANNEL, MATERIAL_CHECK_CHANNEL, MATERIAL_REFRESH_CHANNEL, MATERIAL_PASTE_CHANNEL,
+  MATERIAL_LIMITS, type MaterialChoice, type MaterialRecord } from '../shared/contracts/materials';
 import { TASK_SEARCH_CHANNEL, TASK_SEARCH_LOCATE_CHANNEL, SEARCH_INDEX_READ_CHANNEL, SEARCH_INDEX_REBUILD_CHANNEL, SEARCH_INDEX_CHANGED_CHANNEL,
   type TaskSearchRequest, type TaskSearchSnapshot, type TaskSearchTarget, type TaskSearchLocation, type SearchIndexState } from '../shared/contracts/search';
 import { TASK_RENAME_CHANNEL, TASK_PIN_CHANNEL, TASK_ARCHIVE_CHANNEL, type TaskRename, type TaskPin, type TaskArchive, type OrganizedTaskSummary } from '../shared/contracts/projects';
@@ -15,6 +18,18 @@ import { APP_INFO_CHANNEL, OUTPUT_COPY_CHANNEL, PREFERENCES_READ_CHANNEL, PREFER
 import { MODEL_SETTINGS_CHANGED_CHANNEL, MODEL_TEST_CHANNEL, type ModelTestRequest, MODEL_SETTINGS_READ_CHANNEL, MODEL_KEY_SAVE_CHANNEL, MODEL_KEY_REVEAL_CHANNEL, MODEL_SETTINGS_VISIBLE_CHANNEL, MODEL_ENABLED_CHANNEL, MODEL_CATALOG_FETCH_CHANNEL, MODEL_SELECTION_CHANNEL, MODEL_ACTIVE_CHANNEL, type ModelSelectionChange, type ActiveModelChange, type ConnectionChange, type KeySubmission, type ModelOperation, type ModelSettings } from '../shared/contracts/models';
 
 const bridge: AgentXBridge = Object.freeze({
+  readFilePreview: (source: FilePreviewSource): Promise<FilePreview> => ipcRenderer.invoke(FILE_PREVIEW_READ_CHANNEL, source),
+  openFilePreview: (value: FilePreviewOpen): Promise<{ status: 'requested' }> => ipcRenderer.invoke(FILE_PREVIEW_OPEN_CHANNEL, value),
+  chooseMaterials: (kind: MaterialChoice): Promise<MaterialRecord[]> => ipcRenderer.invoke(MATERIAL_CHOOSE_CHANNEL, kind),
+  addDroppedMaterials: (files: File[]): Promise<MaterialRecord[]> => {
+    if (!Array.isArray(files) || files.length > MATERIAL_LIMITS.count) return Promise.reject(new Error('单次最多添加 16 项材料'));
+    const paths = files.map(file => webUtils.getPathForFile(file));
+    if (paths.some(filename => !filename)) return Promise.reject(new Error('文件没有可核验的本地路径，请使用添加文件或粘贴图片'));
+    return ipcRenderer.invoke(MATERIAL_DROP_CHANNEL, paths);
+  },
+  checkMaterials: (ids: string[]): Promise<MaterialRecord[]> => ipcRenderer.invoke(MATERIAL_CHECK_CHANNEL, ids),
+  refreshMaterial: (id: string): Promise<MaterialRecord> => ipcRenderer.invoke(MATERIAL_REFRESH_CHANNEL, id),
+  pasteMaterialImage: (): Promise<MaterialRecord[]> => ipcRenderer.invoke(MATERIAL_PASTE_CHANNEL),
   searchTasks: (value: TaskSearchRequest): Promise<TaskSearchSnapshot> => ipcRenderer.invoke(TASK_SEARCH_CHANNEL, value),
   locateSearchHit: (value: TaskSearchTarget): Promise<TaskSearchLocation> => ipcRenderer.invoke(TASK_SEARCH_LOCATE_CHANNEL, value),
   getSearchIndexState: (): Promise<SearchIndexState> => ipcRenderer.invoke(SEARCH_INDEX_READ_CHANNEL),

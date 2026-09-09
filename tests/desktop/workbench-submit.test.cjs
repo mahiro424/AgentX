@@ -58,6 +58,8 @@ for (const navigateAway of [false, true]) test(`首次发送：${navigateAway ? 
   assert.equal(await draft.inputValue(), '前\nA后');
   assert.equal(await app.evaluate(() => globalThis.submitRequests.length), 1);
   await draft.fill('修复合成项目');
+  // 自动保存和提交都会禁用主按钮；须先等草稿保存后开放发送，不能把保存中误判为提交中。
+  await page.waitForFunction(() => !document.querySelector('[aria-label="发送"]').disabled);
   await draft.press('Enter');
   await page.waitForFunction(() => document.querySelector('[aria-label="发送"]').disabled);
   assert.equal(await app.evaluate(() => globalThis.submitRequests.length), 2);

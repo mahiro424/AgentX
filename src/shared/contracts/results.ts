@@ -13,7 +13,9 @@ export interface TaskResults extends TaskResultsRequest {
   observedAt: string;
   complete: boolean;
   changes: ResultChange[];
+  artifacts: ArtifactReference[];
   issues: { path: string; reason: 'unreadable' | 'link' | 'limit' | 'changedDuringRead'; code?: string }[];
   excludedNames: string[];
   baselineGit: ResultGitState;
 }
+import type { ArtifactReference } from './artifacts';

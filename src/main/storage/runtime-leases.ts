@@ -8,7 +8,7 @@ interface RuntimeLeaseInput {
   instanceId: string;
   taskId: string;
   operationId: string;
-  projectId: string;
+  projectId: string | null;
   identity: ProcessIdentity;
   createdAt: string;
 }
@@ -23,7 +23,8 @@ const uuid = (value: unknown): value is string => typeof value === 'string' && /
 const time = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 
 function validateLease(value: RuntimeLeaseInput): void {
-  if (!value || ![value.leaseId, value.instanceId, value.taskId, value.operationId, value.projectId].every(uuid) || !time(value.createdAt)) {
+  if (!value || ![value.leaseId, value.instanceId, value.taskId, value.operationId].every(uuid) ||
+      (value.projectId !== null && !uuid(value.projectId)) || !time(value.createdAt)) {
     throw new Error('invalid-runtime-lease');
   }
   validateProcessIdentity(value.identity);
@@ -51,7 +52,7 @@ export function readRuntimeLeases(root: string): RuntimeLease[] {
   }
   return withDatabase(root, database => database.prepare('SELECT * FROM runtime_leases ORDER BY created_at, lease_id').all().map(row => {
     const value: RuntimeLease = { leaseId: row.lease_id as string, instanceId: row.instance_id as string,
-      taskId: row.task_id as string, operationId: row.operation_id as string, projectId: row.project_id as string,
+      taskId: row.task_id as string, operationId: row.operation_id as string, projectId: row.project_id as string | null,
       identity: JSON.parse(row.process_identity as string), createdAt: row.created_at as string,
       workStarted: row.work_started === 1, rootClosedAt: row.root_closed_at as string | null, releasedAt: row.released_at as string | null };
     validateLease(value);

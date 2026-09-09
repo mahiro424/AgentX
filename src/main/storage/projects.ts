@@ -24,8 +24,8 @@ export function readWorkspace(root: string): { projects: ProjectRecord[]; tasks:
     const projects = database.prepare('SELECT * FROM projects ORDER BY created_at, project_id').all().map(projectFromRow);
     const tasks = readOrganizedTaskRecords(database);
     const directories = new Map(projects.map(project => [project.projectId, project.directory]));
-    // M1 没有目录重联；孤儿或错目录记录不能被列表分组静默藏掉。
-    if (tasks.some(task => directories.get(task.projectId) !== task.directory)) throw new Error('invalid-task-project-binding');
+    // 无项目任务只认产品分配的持久目录；孤儿或错目录记录不能被列表分组静默藏掉。
+    if (tasks.some(task => (task.projectId === null ? path.join(root, 'workspaces', task.taskId) : directories.get(task.projectId)) !== task.directory)) throw new Error('invalid-task-project-binding');
     return { projects, tasks };
   });
 }

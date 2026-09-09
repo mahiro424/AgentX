@@ -7,11 +7,11 @@ export function withDatabase<T>(root: string, action: (database: DatabaseSync) =
   try {
     database = new DatabaseSync(path.join(root, 'agentx.db'));
     const version = database.prepare('PRAGMA user_version').get()?.user_version;
-    if (typeof version !== 'number' || !Number.isInteger(version) || version < 0 || version > 12) throw new Error('unsupported-version');
+    if (typeof version !== 'number' || !Number.isInteger(version) || version < 0 || version > 14) throw new Error('unsupported-version');
     if (version === 0 && database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").get()) throw new Error('unknown-schema');
-    database.exec('PRAGMA foreign_keys=ON');
-    if (version < 12) {
-      if (version > 0) database.prepare('VACUUM INTO ?').run(path.join(root, `agentx.before-v12.${randomUUID()}.db`));
+    database.exec(`PRAGMA foreign_keys=${version < 13 ? 'OFF' : 'ON'}`);
+    if (version < 14) {
+      if (version > 0) database.prepare('VACUUM INTO ?').run(path.join(root, `agentx.before-v14.${randomUUID()}.db`));
       database.exec('BEGIN IMMEDIATE');
     }
     if (version === 0) {
@@ -85,7 +85,33 @@ export function withDatabase<T>(root: string, action: (database: DatabaseSync) =
     }
     if (version < 12) {
       database.exec(`ALTER TABLE tasks ADD COLUMN archived_at TEXT;
-        PRAGMA user_version=12; COMMIT;`);
+        PRAGMA user_version=12;`);
+    }
+    if (version < 13) {
+      // 重建可空关联表时暂时关闭外键；提交前核对全部引用，不改写或丢弃旧任务。
+      database.exec(`CREATE TABLE tasks_v13 (task_id TEXT PRIMARY KEY, project_id TEXT REFERENCES projects(project_id), title TEXT NOT NULL,
+        directory TEXT NOT NULL, created_at TEXT NOT NULL, last_activity_at TEXT NOT NULL, observed_at TEXT NOT NULL,
+        execution_state TEXT NOT NULL, thread_id TEXT UNIQUE, turn_id TEXT,
+        organization_revision INTEGER NOT NULL DEFAULT 0 CHECK(organization_revision >= 0), pinned_at TEXT, archived_at TEXT);
+        INSERT INTO tasks_v13 SELECT * FROM tasks;
+        DROP TABLE tasks; ALTER TABLE tasks_v13 RENAME TO tasks;
+        CREATE TABLE runtime_leases_v13 (lease_id TEXT PRIMARY KEY, instance_id TEXT NOT NULL,
+        task_id TEXT NOT NULL, operation_id TEXT NOT NULL UNIQUE, project_id TEXT REFERENCES projects(project_id),
+        process_identity TEXT NOT NULL, created_at TEXT NOT NULL, work_started INTEGER NOT NULL DEFAULT 0 CHECK(work_started IN (0,1)),
+        root_closed_at TEXT, released_at TEXT);
+        INSERT INTO runtime_leases_v13 SELECT * FROM runtime_leases;
+        DROP TABLE runtime_leases; ALTER TABLE runtime_leases_v13 RENAME TO runtime_leases;`);
+      database.exec('PRAGMA user_version=13;');
+    }
+    if (version < 14) {
+      database.exec(`CREATE TABLE materials (material_id TEXT PRIMARY KEY, record TEXT NOT NULL);
+        CREATE TABLE input_materials (operation_id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(task_id),
+          turn_id TEXT, draft_revision INTEGER NOT NULL CHECK(draft_revision >= 0), material_ids TEXT NOT NULL,
+          kind TEXT NOT NULL CHECK(kind IN ('turn','steer')), acknowledged INTEGER NOT NULL DEFAULT 0 CHECK(acknowledged IN (0,1)));
+        ALTER TABLE drafts ADD COLUMN material_ids TEXT NOT NULL DEFAULT '[]';
+        PRAGMA user_version=14;`);
+      if (database.prepare('PRAGMA foreign_key_check').get()) throw new Error('invalid-migration-references');
+      database.exec('COMMIT; PRAGMA foreign_keys=ON;');
     }
     return action(database);
   } catch (cause) {

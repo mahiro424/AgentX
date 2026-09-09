@@ -1,5 +1,6 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const os = require('node:os');
 const { _electron } = require('playwright-core');
 const { once } = require('node:events');
 
@@ -8,7 +9,7 @@ const artifacts = path.join(root, '.local-validation/foundation');
 
 async function launch(existingData) {
   await fs.mkdir(artifacts, { recursive: true });
-  const data = existingData ?? await fs.mkdtemp(path.join(artifacts, 'electron-data-'));
+  const data = existingData ?? await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-desktop-test-')));
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|TOKEN|SECRET|PASSWORD|ELECTRON_RUN_AS_NODE/i.test(key)));
   const app = await _electron.launch({
     executablePath: path.join(process.env.AGENTX_TEST_PACKAGE_DIR ?? path.join(root, 'out/AgentX-win32-x64'), 'AgentX.exe'),

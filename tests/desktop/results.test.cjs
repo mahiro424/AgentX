@@ -159,3 +159,63 @@ for (const state of ['failed', 'interrupted']) test('partialResult：' + state +
   assert.equal((await page.evaluate(() => window.agentx.getWorkspace())).tasks[0].executionState, state);
   assert.equal(await fs.readFile(path.join(binding.directory, 'manual.txt'), 'utf8'), '本轮开始前人工留下的内容');
 });
+
+test('文本产物：从实际改动打开只读标签，显示来源轮次；关闭后仍可检查差异且草稿保留', { timeout: 45000 }, async t => {
+  const { app, page } = await launch(); t.after(() => app.close());
+  const binding = await seed(app), fs = require('node:fs/promises');
+  const original = '# 新结果\n<script>window.artifactScriptRan=true</script>\n事实来自材料\n';
+  await fs.writeFile(path.join(binding.directory, 'result.md'), original);
+  await page.getByRole('button', { name: '检查文件结果', exact: true }).click();
+  await page.getByRole('textbox', { name: '任务要求' }).fill('下一轮补充负责人');
+  await page.getByRole('button', { name: '查看文件改动', exact: true }).click();
+  await page.getByRole('button', { name: '新增 result.md', exact: true }).click();
+  await page.getByRole('button', { name: '预览文本产物：result.md', exact: true }).click();
+  await page.getByRole('tabpanel', { name: 'result.md', exact: true }).getByText(original, { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => window.artifactScriptRan), undefined);
+  await page.getByText('文件来源与版本', { exact: true }).click();
+  assert.match(await page.getByRole('region', { name: '只读文件预览' }).innerText(), /来源轮次：results-turn/);
+  await page.getByRole('button', { name: '关闭文件预览', exact: true }).click();
+  await page.getByRole('region', { name: '文件改动' }).waitFor();
+  await page.getByRole('button', { name: '新增 result.md', exact: true }).click();
+  assert.match(await page.getByRole('region', { name: '只读文本差异' }).innerText(), /事实来自材料/);
+  assert.equal(await page.getByRole('textbox', { name: '任务要求' }).inputValue(), '下一轮补充负责人');
+  assert.equal(await fs.readFile(path.join(binding.directory, 'manual.txt'), 'utf8'), '本轮开始前人工留下的内容');
+});
+
+test('产物版本：外部修改后原标签标陈旧，重开仍可区分旧引用和当前实际文件', { timeout: 45000 }, async t => {
+  let { app, page, data } = await launch(); t.after(() => app.close());
+  const binding = await seed(app), fs = require('node:fs/promises'), filename = path.join(binding.directory, 'result.txt');
+  await fs.writeFile(filename, '已检查的第一版');
+  await page.getByRole('button', { name: '检查文件结果', exact: true }).click();
+  await page.getByRole('button', { name: '查看文件改动', exact: true }).click();
+  await page.getByRole('button', { name: '新增 result.txt', exact: true }).click();
+  await page.getByRole('button', { name: '预览文本产物：result.txt', exact: true }).click();
+  await page.getByRole('tabpanel').getByText('已检查的第一版', { exact: true }).waitFor();
+  await fs.writeFile(filename, '外部修改的第二版');
+  await page.getByRole('button', { name: '重新核验预览' }).click();
+  await page.getByRole('alert').filter({ hasText: '产物内容已变化' }).waitFor();
+  assert.equal(await page.getByRole('tabpanel').innerText(), '已检查的第一版');
+  assert.equal(await page.getByRole('button', { name: '本机打开', exact: true }).isDisabled(), true);
+  await page.getByRole('button', { name: '查看文件改动', exact: true }).click();
+  await page.getByText('已检查文本版本（2）', { exact: true }).click();
+  const versions = page.getByRole('region', { name: '已检查文本版本' });
+  assert.equal(await versions.getByRole('button').count(), 2);
+  const ids = await page.evaluate(async binding => (await window.agentx.getTaskResults({ taskId: binding.taskId, turnId: binding.turnId })).artifacts.map(item => item.resultId), binding);
+  await versions.getByRole('button').first().click();
+  const labels = await page.getByRole('tablist', { name: '已打开文件' }).getByRole('tab').allTextContents();
+  assert.equal(labels.length, 2); assert.equal(new Set(labels).size, 2, '同文件不同结果版本的标签必须可以区分');
+  await app.close(); ({ app, page } = await launch(data));
+  // 仅替换本合成会话的引擎历史边界；产品目录、引用、草稿及实际文件从原现场重开。
+  await app.evaluate(({ ipcMain }, binding) => {
+    ipcMain.removeHandler('agentx:task-history-read');
+    ipcMain.handle('agentx:task-history-read', () => ({ taskId: binding.taskId, threadId: 'results-thread', turns: [{ turnId: binding.turnId, status: 'completed', items: [], unrepresentedItemTypes: [] }] }));
+  }, binding);
+  await page.getByRole('button', { name: '检查文件结果', exact: true }).click();
+  await page.getByRole('button', { name: '查看文件改动', exact: true }).click();
+  await page.getByText('已检查文本版本（2）', { exact: true }).click();
+  const reopened = await page.evaluate(binding => window.agentx.getTaskResults({ taskId: binding.taskId, turnId: binding.turnId }), binding);
+  assert.deepEqual(reopened.artifacts.map(item => item.resultId), ids);
+  await page.getByRole('region', { name: '已检查文本版本' }).getByRole('button').first().click();
+  await page.getByRole('tabpanel').getByText('外部修改的第二版', { exact: true }).waitFor();
+  assert.equal(await fs.readFile(path.join(binding.directory, 'manual.txt'), 'utf8'), '本轮开始前人工留下的内容');
+});

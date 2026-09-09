@@ -1,13 +1,17 @@
 import type { TaskSummary } from '../../shared/contracts/projects';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { readWorkspace } from '../storage/projects';
 import { captureWorkspace, captureGitState } from './workspace-results';
 import { saveWorkspaceBaseline } from '../storage/results';
 import { acquireRuntimeLease, markRuntimeWorkStarted, recordRuntimeClosed, readRuntimeLeases } from '../storage/runtime-leases';
 import { beginTaskSubmission, beginTaskContinuation, markSubmissionDispatched, markSubmissionUncertain, bindSubmissionThread, acknowledgeSubmission, settleTaskTurn, beginTaskStop, updateApprovalWait, readSubmissionIntent } from '../storage/tasks';
 import { parseApprovalRequest, answerApproval, type ApprovalRequest } from '../runtime/codex/approvals';
-import { startThread, resumeThread, startTurn, interruptTurn, steerTurn, terminateBackgroundTerminals } from '../runtime/codex/execution';
+import { startThread, resumeThread, startTurn, interruptTurn, steerTurn, terminateBackgroundTerminals, materialInputText } from '../runtime/codex/execution';
+import { MaterialService } from './materials';
+import { bindInputMaterials } from '../storage/materials';
+import { withDatabase } from '../storage/database';
 import type { CodexTransport } from '../runtime/codex/transport';
 import type { ModelService } from './models';
 import { prepareCodexConfiguration, prepareCodexHistoryConfiguration } from '../runtime/codex/configuration';
@@ -158,11 +162,23 @@ export class ExecutionService {
 
   async steer(input: unknown): Promise<void> {
     if (this.closing) throw new Error('应用正在退出，不能补充要求；请保留输入');
-    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 5 ||
+    const hasMaterials = !!input && typeof input === 'object' && 'materials' in input;
+    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 5 + Number(hasMaterials) ||
         !('text' in input) || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 200000 || input.text.includes('\0')) throw new Error('补充内容无效，请保留输入');
-    const { text, ...control } = input;
+    const { text, materials: selection, ...control } = input as { text: string; materials?: unknown } & ExecutionControl;
     const session = this.control(control);
-    try { const pending = session.steer(text); this.changed(); await pending; }
+    try {
+      const task = this.read().task!;
+      const materials = await new MaterialService(this.root).freeze({ projectId: task.projectId, taskId: task.taskId }, text, selection);
+      const mappedText = materialInputText(text, materials.records);
+      if (this.closing || this.current?.session !== session) throw new Error('补充期间会话已变化，输入保留，未改投新轮');
+      withDatabase(this.root, db => bindInputMaterials(db, task.taskId, control.operationId, materials, 'steer', control.turnId));
+      const pending = session.steer(mappedText); this.changed(); await pending;
+      if (materials.records.length) withDatabase(this.root, db => {
+        if (db.prepare("UPDATE input_materials SET acknowledged=1 WHERE operation_id=? AND task_id=? AND turn_id=? AND kind='steer'")
+          .run(control.operationId, task.taskId, control.turnId).changes !== 1) throw new Error('invalid-material-steer-binding');
+      });
+    }
     finally { this.changed(); }
   }
 
@@ -282,12 +298,13 @@ export class ExecutionService {
     if (this.exitError) throw new Error(`退出核对尚未完成，不能发送新任务：${this.exitError}`);
     this.assertNoUnownedRuntime();
     const uuid = (value: unknown): value is string => typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
-    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== (continuing ? 8 : 6) ||
+    const hasMaterials = !!input && typeof input === 'object' && 'materials' in input;
+    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== (continuing ? 8 : 6) + Number(hasMaterials) ||
         !('taskId' in input) || !uuid(input.taskId) || !('operationId' in input) || !uuid(input.operationId) ||
-        !('projectId' in input) || !uuid(input.projectId) || !('modelId' in input) || input.modelId !== FLASH_MODEL_ID ||
+        !('projectId' in input) || (input.projectId !== null && !uuid(input.projectId)) || !('modelId' in input) || input.modelId !== FLASH_MODEL_ID ||
         !('configRevision' in input) || !Number.isSafeInteger(input.configRevision) || Number(input.configRevision) < 0 ||
         !('text' in input) || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 200000 || input.text.includes('\0')) {
-      throw new Error('发送请求无效；本阶段仅支持 Flash、已关联项目和纯文本');
+      throw new Error('发送请求无效；本阶段仅支持 Flash、文本要求与已核验材料');
     }
     const request = { taskId: input.taskId, operationId: input.operationId, projectId: input.projectId,
       text: input.text, configRevision: Number(input.configRevision) };
@@ -302,31 +319,36 @@ export class ExecutionService {
     }
     if ((!continuing && workspace.tasks.some(task => task.taskId === request.taskId)) || readSubmissionIntent(this.root, request.operationId)) throw new Error('任务或发送操作已使用，请读取原记录，不能重复发送');
     const project = workspace.projects.find(value => value.projectId === request.projectId);
-    if (!project) throw new Error('项目未关联，未开始执行');
+    if (request.projectId !== null && !project) throw new Error('项目未关联，未开始执行');
     this.preparing = true;
     this.preparationDone = new Promise(resolve => { this.finishPreparation = resolve; });
     this.error = null;
     this.changed();
     let openedForRequest = false;
     try {
+      const materialService = new MaterialService(this.root);
+      const materials = await materialService.freeze({ projectId: request.projectId, taskId: previous?.taskId ?? null }, request.text,
+        hasMaterials ? (input as { materials: unknown }).materials : undefined);
+      materialInputText(request.text, materials.records);
       const snapshot = await this.models.captureExecution(request.configRevision);
       if (this.closing) throw new Error('应用正在退出，未开始执行');
-      // 保存的路径必须仍指向用户原先关联的普通目录，不接受 Renderer 指定任意 cwd。
-      if (await fs.realpath(project.directory) !== project.directory || !(await fs.stat(project.directory)).isDirectory()) throw new Error('项目目录已变化，未开始执行');
-      const directory = await fs.opendir(project.directory); await directory.close();
+      const workingDirectory = project?.directory ?? await independentDirectory(this.root, request.taskId, !!previous);
+      // 保存的路径必须仍指向原目录，不接受 Renderer 指定任意 cwd。
+      if (await fs.realpath(workingDirectory) !== workingDirectory || !(await fs.stat(workingDirectory)).isDirectory()) throw new Error('工作目录已变化，未开始执行');
+      const directory = await fs.opendir(workingDirectory); await directory.close();
       await Promise.allSettled(this.historyReads);
       await this.releaseCompletedRuntime();
       const configuration = await prepareCodexConfiguration(this.root, snapshot);
       const now = new Date().toISOString();
-      const task: TaskSummary = previous ?? { taskId: request.taskId, projectId: project.projectId, directory: project.directory,
+      const task: TaskSummary = previous ?? { taskId: request.taskId, projectId: request.projectId, directory: workingDirectory,
         title: request.text.replace(/[\u0000-\u001f\u007f]/gu, ' ').trim().slice(0, 120),
         lastActivityAt: now, observedAt: now, executionState: 'submitting', threadId: null, turnId: null };
       const intent = { operationId: request.operationId, text: request.text, modelId: snapshot.modelId,
-        configRevision: snapshot.configRevision, credentialRef: snapshot.credentialRef };
+        configRevision: snapshot.configRevision, credentialRef: snapshot.credentialRef, materials };
       const session = new FirstTurnSession(this.root, task, intent);
       this.current = { taskId: task.taskId, operationId: intent.operationId, session };
       this.runtime = await openExecutionCodex({ resourcesDirectory: this.resourcesDirectory,
-        workingDirectory: project.directory, ...configuration }, {
+        workingDirectory, ...configuration }, {
         notification: message => { session.notification(message); this.changed(); },
         request: message => { session.request(message); this.changed(); },
         disconnected: error => {
@@ -341,10 +363,11 @@ export class ExecutionService {
         operationId: intent.operationId, projectId: task.projectId, identity: this.runtime.identity, createdAt: new Date().toISOString() });
       this.runtimeLeaseId = leaseId;
       if (this.closing) throw new Error('应用正在退出，未发送任务');
-      const baseline = await captureWorkspace(project.directory);
-      const git = await captureGitState(project.directory);
+      const baseline = await captureWorkspace(workingDirectory);
+      const git = await captureGitState(workingDirectory);
       await saveWorkspaceBaseline(this.root, { taskId: task.taskId, operationId: intent.operationId }, baseline, git);
       if (this.closing) throw new Error('应用正在退出，未发送任务');
+      await materialService.requireReady(materials.records.map(item => item.materialId));
       markRuntimeWorkStarted(this.root, leaseId, this.instanceId);
       await session.submit(this.runtime.transport);
       const saved = readWorkspace(this.root).tasks.find(value => value.taskId === task.taskId);
@@ -361,6 +384,18 @@ export class ExecutionService {
   }
 }
 
+async function independentDirectory(root: string, taskId: string, existing: boolean): Promise<string> {
+  const parent = path.join(root, 'workspaces'), directory = path.join(parent, taskId);
+  if (!existing) await fs.mkdir(parent, { recursive: true });
+  if ((await fs.lstat(parent)).isSymbolicLink() || await fs.realpath(parent) !== parent) throw new Error('独立工作目录来源已变化，未开始执行');
+  if (!existing) {
+    // 准备失败可能留下尚未使用的目录；再次准备也必须核验，不删除其内容。
+    try { await fs.mkdir(directory); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+  }
+  if ((await fs.lstat(directory)).isSymbolicLink() || await fs.realpath(directory) !== directory) throw new Error('独立任务目录已变化，未开始执行');
+  return directory;
+}
+
 // Main 内部协调接缝。调用者负责准备冻结配置及专属已握手连接，并接收该连接的事件。
 export async function submitFirstTurn(root: string, task: TaskSummary,
   intent: Parameters<typeof beginTaskSubmission>[2], transport: CodexTransport) {
@@ -373,7 +408,7 @@ export async function submitFirstTurn(root: string, task: TaskSummary,
   try {
     const thread = await startThread(transport, task.directory);
     bindSubmissionThread(root, task.taskId, intent.operationId, thread.threadId);
-    const turn = await startTurn(transport, thread.threadId, intent.text);
+    const turn = await startTurn(transport, thread.threadId, materialInputText(intent.text, intent.materials?.records));
     acknowledgeSubmission(root, task.taskId, intent.operationId, thread.threadId, turn.turnId);
     return { ...thread, ...turn };
   } catch (cause) {
@@ -401,7 +436,7 @@ export async function submitNextTurn(root: string, previous: TaskSummary,
   beginTaskContinuation(root, previous, intent);
   markSubmissionDispatched(root, previous.taskId, intent.operationId);
   try {
-    const turn = await startTurn(transport, thread.threadId, intent.text);
+    const turn = await startTurn(transport, thread.threadId, materialInputText(intent.text, intent.materials?.records));
     if (turn.turnId === previous.turnId) throw new Error('新轮应答复用了旧轮次，发送结果需要核对');
     acknowledgeSubmission(root, previous.taskId, intent.operationId, thread.threadId, turn.turnId);
     return { ...thread, ...turn };

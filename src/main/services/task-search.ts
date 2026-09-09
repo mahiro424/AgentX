@@ -4,6 +4,7 @@ import type { TaskHistory, HistoryItem } from '../../shared/contracts/history';
 import type { TaskSummary } from '../../shared/contracts/projects';
 import type { TaskSearchRequest, TaskSearchSnapshot, TaskSearchResult, SearchSnippet, TaskSearchTarget, TaskSearchLocation, SearchIndexState } from '../../shared/contracts/search';
 import { readWorkspace } from '../storage/projects';
+import { tasksWithMaterialInputs } from '../storage/materials';
 import { readSearchText, readSearchCoverage, replaceSearchTask, markSearchUnavailable, hasSearchSource, validateSearchCache, preserveDamagedSearchCache, type SearchTextRecord } from '../storage/search';
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
@@ -147,6 +148,7 @@ export class TaskSearchService {
       const turn = history.turns.find(turn => turn.turnId === target.turnId);
       const item = turn?.items.find(item => item.itemId === target.itemId && item.threadId === target.threadId && item.turnId === target.turnId);
       if (history.taskId !== task.taskId || history.threadId !== target.threadId || !item) throw new Error('原历史缺少命中项，不能定位；请重试核对来源');
+      if (tasksWithMaterialInputs(this.root).has(task.taskId) && item.kind !== 'userMessage') throw new Error('材料相关回复与工具正文不自动索引，请在原会话中阅读');
       if (hash(JSON.stringify([item.kind, redactSearchText(visibleText(item))])) !== target.sourceRevision) throw new Error('原历史命中内容已变化，请重建索引后重新查询');
       const current = readWorkspace(this.root).tasks.find(value => value.taskId === task.taskId);
       if (!current || taskRevision(current) !== taskRevision(task)) throw new Error('定位期间会话已变化，请重新核对来源');
@@ -168,8 +170,10 @@ export class TaskSearchService {
     const relevance = new Map<string, number>();
     if (request.query && request.scope !== 'title') {
       const taskIds = new Set(tasks.map(task => task.taskId));
+      const materialTasks = tasksWithMaterialInputs(this.root);
       for await (const batch of readSearchText(this.root)) for (const item of batch) {
         if (!taskIds.has(item.taskId)) continue;
+        if (materialTasks.has(item.taskId) && item.kind !== 'userMessage') continue;
         const count = matchCount(item.visibleText, request.query);
         if (!count) continue;
         if (!bodies.has(item.taskId) || bodies.get(item.taskId)!.ordinal > item.ordinal) bodies.set(item.taskId, item);
@@ -215,11 +219,14 @@ export class TaskSearchService {
         if (!task.threadId && task.executionState !== 'idle') throw new Error('会话尚无可核验的历史绑定，不能标记为已覆盖');
         if (task.threadId) {
           const history = await this.readHistory({ taskId: task.taskId });
+          const materialBound = tasksWithMaterialInputs(this.root).has(task.taskId);
           if (history.taskId !== task.taskId || history.threadId !== task.threadId) throw new Error('索引历史归属不一致，保留原索引');
           const unsupported = [...new Set(history.turns.flatMap(turn => turn.unrepresentedItemTypes).filter(type => type !== 'reasoning'))];
           if (unsupported.length) partialReason = `部分可见历史类型尚不支持搜索：${redactSearchText(unsupported.join('、')).slice(0, 500)}`;
+          if (materialBound) partialReason = '含材料会话仅索引标题与用户要求；材料相关回复和工具正文不自动进入索引';
           for (const turn of history.turns) for (const item of turn.items) {
             if (item.threadId !== history.threadId || item.turnId !== turn.turnId) throw new Error('索引历史项归属不一致，保留原索引');
+            if (materialBound && item.kind !== 'userMessage') continue;
             const text = redactSearchText(visibleText(item));
             items.push({ taskId: task.taskId, threadId: item.threadId, turnId: item.turnId, itemId: item.itemId,
               kind: item.kind, visibleText: text, sourceRevision: hash(JSON.stringify([item.kind, text])) });

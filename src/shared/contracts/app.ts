@@ -7,6 +7,8 @@ import type { TaskHistory, TaskHistoryRequest } from './history';
 import type { TaskSearchRequest, TaskSearchSnapshot, TaskSearchTarget, TaskSearchLocation, SearchIndexState } from './search';
 import type { TaskResults, TaskResultsRequest } from './results';
 import type { DraftScope, DraftRecord, DraftSave } from './drafts';
+import type { MaterialRecord, MaterialChoice } from './materials';
+import type { FilePreview, FilePreviewOpen, FilePreviewSource } from './file-preview';
 import type { ModelTestRequest, ActiveModelChange, ConnectionChange, KeySubmission, ModelOperation, ModelSelectionChange, ModelSettings } from './models';
 
 export const APP_INFO_CHANNEL = 'agentx:app-info';
@@ -27,6 +29,13 @@ export interface AppInfo {
 }
 
 export interface AgentXBridge {
+  readFilePreview(source: FilePreviewSource): Promise<FilePreview>;
+  openFilePreview(value: FilePreviewOpen): Promise<{ status: 'requested' }>;
+  chooseMaterials(kind: MaterialChoice): Promise<MaterialRecord[]>;
+  addDroppedMaterials(files: File[]): Promise<MaterialRecord[]>;
+  checkMaterials(ids: string[]): Promise<MaterialRecord[]>;
+  refreshMaterial(id: string): Promise<MaterialRecord>;
+  pasteMaterialImage(): Promise<MaterialRecord[]>;
   searchTasks(value: TaskSearchRequest): Promise<TaskSearchSnapshot>;
   locateSearchHit(value: TaskSearchTarget): Promise<TaskSearchLocation>;
   getSearchIndexState(): Promise<SearchIndexState>;

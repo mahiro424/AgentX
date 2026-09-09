@@ -18,9 +18,11 @@ import { useHistory } from './workbench/useHistory';
 import { HistoryTimeline } from './workbench/HistoryTimeline';
 import { ReconciliationNotice } from './workbench/ReconciliationNotice';
 import { ResultsPanel } from './workbench/ResultsPanel';
+import { FilePreviewPanel, useFilePreviews } from './workbench/FilePreviewPanel';
 import { OutputPanel } from './workbench/OutputPanel';
 import type { CommandItem } from '../shared/contracts/execution';
 import { useDraft } from './workbench/useDraft';
+import { MaterialsList, MaterialsMenu, useMaterialActions } from './workbench/MaterialsInput';
 import { ExecutionTimeline } from './workbench/ExecutionTimeline';
 import { taskStateLabel } from './shell/TaskStatus';
 import { FLASH_MODEL_ID, type ModelSettings as ModelConfiguration } from '../shared/contracts/models';
@@ -95,11 +97,15 @@ function App() {
       item.threadId === outputSelection.threadId && item.turnId === outputSelection.turnId && item.itemId === outputSelection.itemId) : undefined;
   function openOutput(item: CommandItem, trigger: HTMLButtonElement) {
     if (!workspace.selectedTaskId) return;
-    outputTrigger.current = trigger; setResultsTask(null);
+    outputTrigger.current = trigger; setResultsTask(null); previews.hide();
     setOutputSelection({ taskId: workspace.selectedTaskId, threadId: item.threadId, turnId: item.turnId, itemId: item.itemId });
   }
   const draftState = useDraft({ projectId: workspace.selectedProjectId, taskId: workspace.selectedTaskId });
+  const previews = useFilePreviews({ projectId: workspace.selectedProjectId, taskId: workspace.selectedTaskId });
   const draft = draftState.text, setDraft = draftState.setText;
+  const materialActions = useMaterialActions(draftState.latestMaterials, values => { draftRevision.current++; draftState.setMaterials(values); });
+  const materialsBlocked = materialActions.busy || draftState.checking ? '正在核验材料，请稍候。'
+    : draftState.materialError || (draftState.materials.some(item => item.status !== 'ready') ? '请先重查或移除不可用材料。' : '');
   const [modelConfiguration, setModelConfiguration] = useState<ModelConfiguration | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const submitLock = useRef(false);
@@ -112,14 +118,15 @@ function App() {
   const reconciliationTaskId = selectedTask?.executionState === 'reconciling' || (selectedTask && reconciliationTaskIds.includes(selectedTask.taskId))
     ? selectedTask!.taskId : reconciliationTaskIds[0] ?? (busyTask?.executionState === 'reconciling' ? busyTask.taskId : null);
   const blockedReason = submitting || execution.snapshot?.preparing ? '正在提交，请等待确认，不会重复发送。'
+    : materialsBlocked ? materialsBlocked
     : selectedTask?.archivedAt ? '会话已归档，请先显式恢复后再发送；原草稿和历史保留。'
     : draftState.loading || draftState.saving || draftState.error ? '请先确认草稿已读取并保存。'
     : !workspace.snapshot || workspace.error || !execution.snapshot || execution.error ? '请先完成项目和执行状态读取。'
     : reconciliationTaskIds.length ? '存在引擎或后台回收待核对，不会发送新任务。'
     : busyTask ? '有活动或待核对任务，不能开始另一个任务。'
     : workspace.selectedTaskId && (!selectedTask?.threadId || !canInspect) ? '本会话没有已确认结束的轮次，请先核对状态。'
-    : !selectedProject ? '请先选择本地项目。'
-    : selectedProject.directoryState !== 'available' ? '工作目录不可用，不能开始执行。'
+    : workspace.selectedProjectId !== null && !selectedProject ? '所选项目已不可用，请重新选择。'
+    : selectedProject && selectedProject.directoryState !== 'available' ? '工作目录不可用，不能开始执行。'
     : !modelConfiguration ? '正在读取可用模型配置。'
     : modelConfiguration.saving || modelConfiguration.keySaveError ? '密钥尚未保存成功，请检查模型设置。'
     : !modelConfiguration.enabled || !modelConfiguration.hasCredential ? '请先启用模型连接并保存 API Key。'
@@ -154,10 +161,11 @@ function App() {
   useEffect(() => { draftRevision.current++; }, [workspace.selectedProjectId, workspace.selectedTaskId]);
 
   async function sendTurn() {
-    if (blockedReason || submitLock.current || !selectedProject || !modelConfiguration) return;
+    if (blockedReason || submitLock.current || !modelConfiguration) return;
     const previousTaskId = workspace.selectedTaskId;
-    const request = { taskId: selectedTask?.taskId ?? crypto.randomUUID(), operationId: crypto.randomUUID(), projectId: selectedProject.projectId,
-      modelId: FLASH_MODEL_ID, configRevision: modelConfiguration.configRevision, text: draft };
+    const request = { taskId: selectedTask?.taskId ?? crypto.randomUUID(), operationId: crypto.randomUUID(), projectId: workspace.selectedProjectId,
+      modelId: FLASH_MODEL_ID, configRevision: modelConfiguration.configRevision, text: draft,
+      materials: { revision: draftState.revision!, ids: draftState.materials.map(item => item.materialId) } };
     const revision = ++draftRevision.current, generation = selection.current.generation;
     const stillHere = () => selection.current.projectId === request.projectId && selection.current.taskId === previousTaskId && selection.current.generation === generation;
     submitLock.current = true; setSubmitting(true); setExecutionActionError(null);
@@ -166,12 +174,18 @@ function App() {
         ? await window.agentx.continueExecution({ ...request, threadId: selectedTask.threadId!, expectedTurnId: selectedTask.turnId! })
         : await window.agentx.startExecution(request);
       if (stillHere()) {
-        if (!selectedTask && draftRevision.current !== revision) draftState.seedNewTask({ projectId: request.projectId, taskId: task.taskId }, draftState.latestText());
+        if (!selectedTask) previews.moveToTask(task.taskId);
+        if (!selectedTask) draftState.seedNewTask({ projectId: request.projectId, taskId: task.taskId }, draftRevision.current !== revision ? draftState.latestText() : '', draftState.latestMaterials());
         workspace.setSelectedTaskId(task.taskId);
-        if (draftRevision.current === revision) setDraft('');
+        if (draftRevision.current === revision) {
+          // 首发材料已归入任务；清空原新对话现场，续轮则保留本任务材料。
+          if (!selectedTask) draftState.setMaterials([]);
+          setDraft('');
+        }
       }
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : '发送失败，请先核对执行状态';
+      void draftState.checkMaterials();
       if (stillHere()) setExecutionActionError({ taskId: previousTaskId, message });
       // 失败也可能已经持久化并发往引擎；定位已有记录，而不是把失败当作可自动重试。
       try {
@@ -189,15 +203,17 @@ function App() {
 
   async function supplement() {
     const task = currentExecution?.task;
-    if (!task?.threadId || !task.turnId || !canSteer || !draft.trim() || steeringTaskId || execution.error) return;
+    if (!task?.threadId || !task.turnId || !canSteer || !draft.trim() || steeringTaskId || execution.error || materialsBlocked || draftState.loading || draftState.saving || draftState.error) return;
     const text = draft, revision = draftRevision.current;
     setSteeringTaskId(task.taskId); setExecutionActionError(null); setSteerNotice(null);
     try {
-      await window.agentx.steerExecution({ taskId: task.taskId, operationId: crypto.randomUUID(), threadId: task.threadId, turnId: task.turnId, text });
+      await window.agentx.steerExecution({ taskId: task.taskId, operationId: crypto.randomUUID(), threadId: task.threadId, turnId: task.turnId, text,
+        materials: { revision: draftState.revision!, ids: draftState.materials.map(item => item.materialId) } });
       setSteerNotice({ taskId: task.taskId, turnId: task.turnId, message: '补充要求已接收' });
       // 仅清除本次确已接收且没有再编辑的输入，切换会话也会推进草稿修订。
       if (draftRevision.current === revision) setDraft('');
     } catch (cause) {
+      void draftState.checkMaterials();
       setExecutionActionError({ taskId: task.taskId, turnId: task.turnId, message: cause instanceof Error ? cause.message : '补充失败，请保留输入' });
     } finally { setSteeringTaskId(null); void execution.load(); }
   }
@@ -304,7 +320,7 @@ function App() {
     </aside>}
     <div className="workspace">
       <header className="window-bar drag-region">{!sidebarOpen && <><button ref={sidebarToggle} className="icon-button" aria-label="展开侧栏" onClick={toggleSidebar}><PanelIcon /></button><button className="icon-button" aria-label="搜索会话" title="搜索会话（Ctrl+K）" onClick={() => setSearchOpen(true)}><SearchIcon /></button><button className="icon-button" aria-label="新会话" onClick={newSession}>＋</button><button className="icon-button" aria-label="设置" onClick={() => setView('settings')}><SettingsIcon /></button></>}</header>
-      <div className={`workbench-layout${resultsOpen || outputItem ? ' has-results' : ''}`} hidden={view !== 'workbench'}>
+      <div className={`workbench-layout${resultsOpen || outputItem || previews.active ? ' has-results' : ''}`} hidden={view !== 'workbench'}>
       <main className={`welcome${selectedTask || currentExecution?.task || reconciliationTaskId ? ' execution-workbench' : ''}`}>
         <div className="welcome-heading">
           <div className="task-heading"><h1 title={selectedTask?.title}>{selectedTask?.title ?? '今天想完成什么工作？'}</h1>
@@ -315,7 +331,7 @@ function App() {
           <p>{currentState ? currentState === 'stopping' ? '正在停止，等待引擎确认…' : taskStateLabel[currentState] : selectedTask ? taskStateLabel[selectedTask.executionState] : '用自然语言描述目标，在这里开始工作。'}</p>
           {selectedTask?.archivedAt && <p className="muted">已归档 · 原历史和文件保留 <button className="secondary-button" aria-label="恢复会话"
             disabled={!!workspace.organizingTaskId} onClick={event => void workspace.archiveTask(selectedTask, event.currentTarget)}>恢复会话</button></p>}
-          {canInspect && <button ref={resultsTrigger} className="secondary-button inspect-results" aria-label="查看文件改动" aria-expanded={resultsOpen} onClick={() => { setOutputSelection(null); setResultsTask(selectedTask!.taskId); }}>查看文件改动</button>}
+          {canInspect && <button ref={resultsTrigger} className="secondary-button inspect-results" aria-label="查看文件改动" aria-expanded={resultsOpen && !previews.active} onClick={() => { previews.hide(); setOutputSelection(null); setResultsTask(selectedTask!.taskId); }}>查看文件改动</button>}
         </div>
         {(selectedTask || currentExecution || reconciliationTaskId) && <div className="execution-transcript">
         {reconciliationTaskId && <ReconciliationNotice key={reconciliationTaskId} taskId={reconciliationTaskId} />}
@@ -339,9 +355,21 @@ function App() {
           {workspace.snapshot?.projects.map(project => <option key={project.projectId} value={project.projectId}>{project.displayName}</option>)}
           <option value="choose-directory">选择本地文件夹…</option>
         </select></div>
-        <section className="composer" aria-label="任务输入">
+        <section className="composer" aria-label="任务输入" onDragOver={event => {
+          if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }
+        }} onDrop={event => {
+          if (!event.dataTransfer.files.length) return;
+          event.preventDefault(); if (!draftState.loading) void materialActions.drop(Array.from(event.dataTransfer.files));
+        }} onPaste={event => {
+          if (Array.from(event.clipboardData.items).some(item => item.type.startsWith('image/'))) {
+            event.preventDefault(); if (!draftState.loading) void materialActions.paste();
+          }
+        }}>
+          <MaterialsList materials={draftState.materials} checking={draftState.checking} saving={draftState.saving || draftState.loading} actions={materialActions}
+            open={(item, trigger) => previews.open({ kind: 'material', scope: { projectId: workspace.selectedProjectId, taskId: workspace.selectedTaskId }, materialId: item.materialId }, item.name, trigger)}
+            remove={id => { draftRevision.current++; draftState.setMaterials(draftState.latestMaterials().filter(item => item.materialId !== id)); }} />
           {canSteer && <div className="composer-supplement"><button className="supplement-button" aria-label="补充要求" title="补充要求（Enter）"
-            disabled={!draft.trim() || !!steeringTaskId || !!execution.error} onClick={() => void supplement()}>{steeringTaskId ? '正在补充…' : '补充要求 (Enter)'}</button></div>}
+            disabled={!draft.trim() || !!steeringTaskId || !!execution.error || !!materialsBlocked || draftState.loading || draftState.saving || !!draftState.error} onClick={() => void supplement()}>{steeringTaskId ? '正在补充…' : '补充要求 (Enter)'}</button></div>}
           <label className="sr-only" htmlFor="task-draft">任务要求</label>
           <textarea id="task-draft" ref={input} value={draft} disabled={draftState.loading} onChange={event => { draftRevision.current++; setDraft(event.target.value); }}
             onKeyDown={event => {
@@ -364,6 +392,7 @@ function App() {
             }}
             placeholder="描述你想完成的工作…" title="Enter 发送，Ctrl+Enter 换行" />
           <div className="composer-toolbar">
+            <MaterialsMenu disabled={draftState.loading || materialActions.busy} choose={materialActions.choose} />
             <span className="muted">请求批准</span>
             {currentExecution?.task && !canInspect ? <span className="model-state">{FLASH_MODEL_ID} · 本轮</span>
               : <ModelPicker visible={view === 'workbench'} onSettingsChange={setModelConfiguration} openSettings={() => { setSettingsGroup('models'); setView('settings'); }} />}
@@ -374,18 +403,21 @@ function App() {
             </button>
           </div>
         </section>
+        {draftState.materialError && <p role="alert" className="error-message">{draftState.materialError}<button className="text-button" onClick={() => void draftState.checkMaterials()}>重新核验材料</button></p>}
         {draftState.error ? <p role="alert" className="error-message">{draftState.error}；当前输入不会自动丢弃。<button className="secondary-button" onClick={draftState.retry}>重试草稿保存或读取</button></p>
           : <p role="status" className="muted">{draftState.loading ? '正在读取草稿…' : draftState.saving ? '正在保存草稿…' : '草稿已保存'}</p>}
         {steerNotice?.taskId === workspace.selectedTaskId && steerNotice.turnId === currentExecution?.task?.turnId && <p role="status" className="muted">{steerNotice.message}</p>}
         <p id="send-unavailable" role="note" className={selectedProject?.directoryState === 'unavailable' ? 'error-message' : 'muted'}>{selectedProject?.directoryState === 'unavailable'
-          ? `工作目录不可用：${selectedProject.directoryError}。不能在此目录开始新执行，原会话关联仍保留。` : currentExecution && !canInspect ? '本轮沿用已提交的模型与权限。停止请求需等待引擎确认，已发生的修改不会自动撤销。' : blockedReason || (selectedTask ? '将在原会话中开始新一轮，保留先前历史；这不是旧进程的断点续跑。' : '将使用选定项目与 Flash 开始工作。')}</p>
+          ? `工作目录不可用：${selectedProject.directoryError}。不能在此目录开始新执行，原会话关联仍保留。` : currentExecution && !canInspect ? '本轮沿用已提交的模型与权限。停止请求需等待引擎确认，已发生的修改不会自动撤销。' : blockedReason || (selectedTask ? '将在原会话中开始新一轮，保留先前历史；这不是旧进程的断点续跑。' : selectedProject ? '将使用选定项目与 Flash 开始工作。' : '发送后建立独立工作目录，使用 Flash 开始工作。')}</p>
         {busyTask && busyTask.taskId !== workspace.selectedTaskId && <button className="secondary-button" onClick={() => {
           workspace.setSelectedProjectId(busyTask.projectId); workspace.setSelectedTaskId(busyTask.taskId);
         }}>查看活动或待核对任务</button>}
       </main>
-      {resultsOpen && selectedTask?.turnId && <ResultsPanel key={`${selectedTask.taskId}:${selectedTask.turnId}`} taskId={selectedTask.taskId} turnId={selectedTask.turnId}
+      <FilePreviewPanel {...previews} visible={view === 'workbench' && !!previews.active} running={showStop} />
+      {resultsOpen && !previews.active && selectedTask?.turnId && <ResultsPanel key={`${selectedTask.taskId}:${selectedTask.turnId}`} taskId={selectedTask.taskId} turnId={selectedTask.turnId}
+        onPreview={(artifact, trigger) => previews.open({ kind: 'result', taskId: artifact.taskId, resultId: artifact.resultId }, artifact.path.split('/').at(-1)!, resultsTrigger.current ?? trigger)}
         onClose={() => { setResultsTask(null); resultsTrigger.current?.focus(); }} />}
-      {outputItem && <OutputPanel key={`${outputSelection!.taskId}:${outputItem.threadId}:${outputItem.turnId}:${outputItem.itemId}`} item={outputItem}
+      {outputItem && !previews.active && <OutputPanel key={`${outputSelection!.taskId}:${outputItem.threadId}:${outputItem.turnId}:${outputItem.itemId}`} item={outputItem}
         active={!hasCurrentHistory && outputItem.turnId === currentExecution?.task?.turnId && !execution.error && showStop}
         onClose={() => { setOutputSelection(null); if (outputTrigger.current?.isConnected) outputTrigger.current.focus(); else input.current?.focus(); }} />}
       </div>
