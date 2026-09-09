@@ -16,5 +16,7 @@ test('办公依赖打包：锁定生产依赖保留完整许可，包含 ExcelJS
   assert.match(text, /mammoth@1\.12\.2/); assert.match(text, /docx@9\.7\.1/);
   assert.match(text, /hash\.js@1\.1\.7/); assert.match(text, /Copyright Fedor Indutny, 2014/);
   assert.match(text, /dingbat-to-unicode@1\.0\.1/); assert.match(text, /不冒充上游原始 LICENSE/);
+  assert.match(text, /pdfjs-dist@6\.3\.289/); assert.match(text, /LICENSE_FOXIT/); assert.match(text, /LICENSE_LIBERATION/);
+  assert.doesNotMatch(text, /^@napi-rs\//m);
   assert.doesNotMatch(text, /^(@electron-forge\/[^\r\n]+|ts-node)@/m);
 });

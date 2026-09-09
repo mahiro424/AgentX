@@ -3,7 +3,9 @@ import type { DraftScope } from '../../shared/contracts/drafts';
 import type { FilePreview, FilePreviewSource } from '../../shared/contracts/file-preview';
 import type { Spreadsheet } from '../../shared/contracts/spreadsheet';
 import type { OfficeDocument } from '../../shared/contracts/document';
+import type { PdfDocument } from '../../shared/contracts/pdf';
 import { SpreadsheetView } from './SpreadsheetView';
+import { PdfView } from './PdfView';
 
 interface PreviewTab { key: string; scopeKey: string; source: FilePreviewSource; name: string; trigger: HTMLButtonElement }
 const scopeKey = (scope: DraftScope) => JSON.stringify([scope.projectId, scope.taskId]);
@@ -42,7 +44,7 @@ export function useFilePreviews(scope: DraftScope) {
   };
 }
 
-interface PreviewCache { value?: FilePreview; text: string | null; spreadsheet?: Spreadsheet; document?: OfficeDocument; sheet?: string; zoom: number; scroll: number; loading: boolean; error: string; action: string; actionBusy: boolean }
+interface PreviewCache { value?: FilePreview; text: string | null; spreadsheet?: Spreadsheet; document?: OfficeDocument; pdf?: PdfDocument; pdfData?: string; page?: number; sheet?: string; zoom: number; scroll: number; loading: boolean; error: string; action: string; actionBusy: boolean }
 export function FilePreviewPanel({ tabs, active, visible, running, select, close }: ReturnType<typeof useFilePreviews> & { visible: boolean; running: boolean }) {
   const cache = useRef(new Map<string, PreviewCache>()), sequence = useRef(0);
   const [revision, redraw] = useState(0), [expanded, setExpanded] = useState(false), [width, setWidth] = useState(440);
@@ -63,6 +65,7 @@ export function FilePreviewPanel({ tabs, active, visible, running, select, close
       if (value.status === 'ready' && value.text !== null) target.text = value.text;
       if (value.status === 'ready' && value.spreadsheet) target.spreadsheet = value.spreadsheet;
       if (value.status === 'ready' && value.document) target.document = value.document;
+      if (value.status === 'ready' && value.pdf && value.pdfData) { target.pdf = value.pdf; target.pdfData = value.pdfData; }
     } catch (cause) { if (current === sequence.current) target.error = cause instanceof Error ? cause.message : '预览读取失败'; }
     finally { if (current === sequence.current) { target.loading = false; redraw(previous => previous + 1); } }
   }
@@ -80,7 +83,7 @@ export function FilePreviewPanel({ tabs, active, visible, running, select, close
   useEffect(() => { if (active && content.current) content.current.scrollTop = entry(active.key).scroll; }, [active?.key, revision, visible]);
   if (!active) return null;
   const current = entry(active.key), value = current.value;
-  const stale = (current.text !== null || !!current.spreadsheet || !!current.document) && (!!current.error || value?.status !== 'ready');
+  const stale = (current.text !== null || !!current.spreadsheet || !!current.document || !!current.pdf) && (!!current.error || value?.status !== 'ready');
   async function fileAction(action: 'open' | 'reveal' | 'copy') {
     if (!active || current.actionBusy) return;
     current.actionBusy = true; current.action = ''; redraw(previous => previous + 1);
@@ -128,10 +131,11 @@ export function FilePreviewPanel({ tabs, active, visible, running, select, close
       {running && <p role="note">任务仍在运行，文件可能继续变化。</p>}
       {active.source.kind === 'result' && (current.spreadsheet || current.document) && <p role="note">可读取不等于已验证业务结果；中断或失败轮次的文件可能仅是部分产物，请独立核对。</p>}
       {current.document?.messages.map((message, index) => <p className="muted" role="note" key={index}>{message}</p>)}
+      {current.pdf?.messages.map((message, index) => <p className="muted" role="note" key={index}>{message}</p>)}
       {current.loading && <p className="muted" role="status">正在核验实际文件…</p>}
       {current.error && <p className="error-message" role="alert">{current.error}</p>}
       {!current.error && value && value.status !== 'ready' && <p className="error-message" role="alert">{value.message}</p>}
-      {stale && <p role="note">保留上次成功读取的{current.spreadsheet ? '表格' : current.document ? '文档' : '文本'}，不代表当前文件；{active.source.kind === 'result' ? '请重新检查文件改动，再打开新版本。' : '请核对材料后重新打开。'}</p>}
+      {stale && <p role="note">保留上次成功读取的{current.spreadsheet ? '表格' : current.document ? '文档' : current.pdf ? ' PDF' : '文本'}，不代表当前文件；{active.source.kind === 'result' ? '请重新检查文件改动，再打开新版本。' : '请核对材料后重新打开。'}</p>}
       {current.action && <p role="status">{current.action}</p>}
     </div>
     <div id="preview-content" role="tabpanel" aria-label={active.name} className={`preview-content${current.spreadsheet ? ' preview-spreadsheet' : ''}`} tabIndex={0} ref={content}
@@ -142,6 +146,8 @@ export function FilePreviewPanel({ tabs, active, visible, running, select, close
       </article>}
       {current.spreadsheet && <SpreadsheetView key={active.key} value={current.spreadsheet} zoom={current.zoom} selectedSheet={current.sheet ?? ''}
         selectSheet={name => { current.sheet = name; redraw(previous => previous + 1); }} />}
+      {visible && current.pdf && current.pdfData && <PdfView key={active.key} value={current.pdf} data={current.pdfData} zoom={current.zoom} page={current.page ?? 1}
+        selectPage={page => { current.page = page; redraw(previous => previous + 1); }} />}
     </div>
   </section>;
 }

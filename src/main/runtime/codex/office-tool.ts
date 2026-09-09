@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { statSync } from 'node:fs';
 
-export function officeToolInstructions(formats: ('spreadsheet' | 'document')[] = ['spreadsheet']): string {
+export function officeToolInstructions(formats: ('spreadsheet' | 'document' | 'pdf')[] = ['spreadsheet']): string {
   const cli = __filename.endsWith('.ts') ? path.join(__dirname, '../../tools/office-cli.cjs') : path.join(__dirname, 'office-cli.js');
   if (!statSync(cli).isFile()) throw new Error('随包办公工具缺失，未开始办公任务');
   const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
@@ -19,5 +19,7 @@ export function officeToolInstructions(formats: ('spreadsheet' | 'document')[] =
     'DOCX 读取 JSON 中 format=docx，paragraphs 为实际文字段落，messages 说明读取限制；不保留 Word 分页、软换行、列表编号和表格布局。不执行 OCR，不把图片当已读取文字。\n' +
     '生成输入为 UTF-8 JSON：{"paragraphs":["文档标题","第一段正文","第二段正文"]}；每段为纯文字，换行拆成新段落，不提交 HTML 或其他属性。也可用既有文件工具生成 TXT/Markdown。\n' +
     '生成 DOCX 后必须用回执中的 SHA-256 重新读取并核对实际段落和材料事实，不能以文件存在或可解析结构代替业务验证。保留原件和旧版本。最多 8 MiB、提取文字 1 MiB、5000 段，30 秒超时；失败或停止留下的文档只是未验证部分产物。';
-  return common + (formats.includes('spreadsheet') ? spreadsheet : '') + (formats.includes('document') ? document : '');
+  const pdf = '\nPDF 读取 JSON 中 format=pdf，pages[] 按真实页码保留 number/text/width/height，messages 明确空白或无法提取文字页。只处理文本 PDF，不执行 OCR，也不生成 PDF。\n' +
+    '根据实际页文字整理 TXT/Markdown 或 DOCX 新文件，并独立核对材料中的事实和来源页；不能把空白或扫描页称为已经读取，不能推测复杂表格阅读顺序。最多 8 MiB、200 页、提取文字 1 MiB。';
+  return common + (formats.includes('spreadsheet') ? spreadsheet : '') + (formats.includes('document') || formats.includes('pdf') ? document : '') + (formats.includes('pdf') ? pdf : '');
 }

@@ -13,6 +13,20 @@ const run = (cwd, args) => promisify(execFile)(process.execPath, ['--max-old-spa
   env: Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(SystemRoot|WINDIR|TEMP|TMP)$/i.test(key))),
 });
 
+test('PDF 命令：按实际哈希提取逐页文字，保留原件；不伪装 PDF 生成能力', async () => {
+  const { pdfBytes } = require('../helpers/pdf-fixture.cjs');
+  const cwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-pdf-cli-')));
+  const source = path.join(cwd, '原件.pdf'), bytes = pdfBytes(); await fs.writeFile(source, bytes);
+  const result = JSON.parse((await run(cwd, ['read', source, digest(bytes), '页内容.json'])).stdout);
+  const content = JSON.parse(await fs.readFile(result.path, 'utf8'));
+  assert.equal(content.format, 'pdf'); assert.equal(content.pages[1].text, 'Delivery Friday');
+  assert.equal(result.sourceSha256, digest(bytes)); assert.equal(content.pdfData, undefined);
+  await assert.rejects(run(cwd, ['read', source, '0'.repeat(64), '错误.json']), /版本.*变化/);
+  await assert.rejects(run(cwd, ['write', '页内容.json', '输出.pdf']), /格式|PDF|CSV.*XLSX/);
+  await assert.rejects(fs.access(path.join(cwd, '输出.pdf')), /ENOENT/);
+  assert.deepEqual(await fs.readFile(source), bytes);
+});
+
 test('文档命令：生成新的 DOCX 并按实际哈希回读段落，同名和错误哈希不改写文件', async () => {
   const cwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-document-cli-')));
   const paragraphs = ['青禾季度报告', '收入：95；交付：周五', '<script>只是文字</script>'];

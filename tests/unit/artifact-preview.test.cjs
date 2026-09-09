@@ -26,6 +26,23 @@ async function fixture() {
   return { root, directory, taskId, operationId, request: { taskId, turnId: 'artifact-turn' } };
 }
 
+test('PDF 产物：实际文件指纹建立来源引用，损坏或变更保留旧版本，不从模型路径补造', async () => {
+  const { readTaskResults } = require('../../src/main/services/task-results.ts');
+  const { readFilePreview } = require('../../src/main/services/file-preview.ts');
+  const value = await fixture(), filename = path.join(value.directory, '附件副本.pdf'), bytes = require('../helpers/pdf-fixture.cjs').pdfBytes();
+  await fs.writeFile(filename, bytes);
+  const result = await readTaskResults(value.root, value.request);
+  assert.equal(result.artifacts.length, 1);
+  const artifact = result.artifacts[0], source = { kind: 'result', taskId: value.taskId, resultId: artifact.resultId };
+  const preview = await readFilePreview(value.root, source);
+  assert.equal(preview.status, 'ready'); assert.equal(preview.turnId, value.request.turnId);
+  assert.equal(preview.pdf.pages.length, 2); assert.deepEqual(Buffer.from(preview.pdfData, 'base64'), bytes);
+  await fs.writeFile(filename, '未完成 PDF');
+  const broken = await readFilePreview(value.root, source);
+  assert.equal(broken.status, 'unreadable'); assert.equal(broken.pdfData, null);
+  assert.equal(broken.version.sha256, artifact.sha256);
+});
+
 test('文档产物：真实 DOCX 绑定来源轮次并预览，损坏的新字节不覆盖已登记版本', async () => {
   const { Document, Paragraph, Packer } = require('docx');
   const { readTaskResults } = require('../../src/main/services/task-results.ts');

@@ -7,10 +7,24 @@ async function prepareOfficeLicenses(destination = path.join(root, '.cache', 'li
   const sections = ['第三方依赖许可证\n按锁定生产依赖收集，版权归各自作者；许可证原文保留。'];
   for (const [relative, locked] of Object.entries(lock.packages).sort(([a], [b]) => a.localeCompare(b))) {
     if (!relative || locked.dev) continue;
-    const directory = path.join(root, relative), metadata = JSON.parse(await fs.readFile(path.join(directory, 'package.json'), 'utf8'));
+    const directory = path.join(root, relative);
+    let metadata;
+    try { metadata = JSON.parse(await fs.readFile(path.join(directory, 'package.json'), 'utf8')); }
+    catch (error) {
+      // npm omit=optional 仍将可选依赖写入锁文件；仅跳过确实未安装的可选包。
+      if (locked.optional && error.code === 'ENOENT') continue;
+      throw error;
+    }
     if (metadata.version !== locked.version) throw new Error(`许可收集发现依赖版本不一致：${relative}`);
     const names = (await fs.readdir(directory, { withFileTypes: true })).filter(item => item.isFile() && /^(licen[sc]e|copying|notice|copyright)/i.test(item.name)).map(item => item.name).sort();
     let files = names.map(name => path.join(directory, name));
+    if (metadata.name === 'pdfjs-dist' && metadata.version === '6.3.289') {
+      for (const folder of ['cmaps', 'standard_fonts', 'wasm', 'iccs']) {
+        for (const file of await fs.readdir(path.join(directory, folder))) {
+          if (/^(licen[sc]e|notice)/i.test(file)) files.push(path.join(directory, folder, file));
+        }
+      }
+    }
     if (!files.length && metadata.name === 'isarray' && metadata.version === '1.0.0') files = [path.join(directory, 'README.md')];
     if (!files.length && metadata.name === 'hash.js' && metadata.version === '1.1.7') files = [path.join(directory, 'README.md')];
     // 该 npm 版本未带许可文件，保留对应官方版本的完整许可原文。

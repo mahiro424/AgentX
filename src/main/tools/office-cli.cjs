@@ -3,6 +3,8 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { read, write } = require('./office-spreadsheet.cjs');
 const { readDocument, writeDocument } = require('./office-document.cjs');
+const { readPdf } = require('./office-pdf.cjs');
+console.log = (...values) => process.stderr.write(values.join(' ') + '\n');
 const maximumBytes = 8 * 1024 * 1024;
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const same = (a, b) => a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
@@ -43,7 +45,7 @@ async function main(args) {
     const { bytes, canonical } = await readFile(source);
     if (hash(bytes) !== expectedSha) throw new Error('材料版本已变化，未继续读取或生成');
     const extension = path.extname(canonical).toLowerCase();
-    const result = await (extension === '.docx' ? readDocument : read)(bytes, extension);
+    const result = await (extension === '.pdf' ? readPdf : extension === '.docx' ? readDocument : read)(bytes, extension);
     return { ...await writeNew(output, Buffer.from(JSON.stringify(result))), sourceSha256: expectedSha, formulaStatus: result.formulaStatus };
   }
   if (args[0] === 'write' && args.length === 3) {

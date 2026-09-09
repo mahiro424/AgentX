@@ -5,6 +5,15 @@ const { spawn } = require('node:child_process');
 const { once } = require('node:events');
 require('ts-node').register({ transpileOnly: true });
 
+test('进程身份查询超时：保留超时与终止信号，不伪装不存在，也不输出敏感 stderr', async t => {
+  const childProcess = require('node:child_process');
+  t.mock.method(childProcess, 'execFile', (_file, _args, _options, callback) => {
+    callback(Object.assign(new Error('synthetic-private-detail'), { killed: true, signal: 'SIGTERM' }), '', 'synthetic-private-stderr');
+  });
+  const { readProcessIdentity } = require('../../src/main/lifecycle/process-identity.ts');
+  await assert.rejects(readProcessIdentity(1234), error => /超时/.test(error.message) && /SIGTERM/.test(error.message) && !/synthetic-private/.test(error.message));
+});
+
 test('进程身份：只读核验本测试子进程的 PID、创建时间和映像，退出后不把 PID 当存活证明', { timeout: 30000 }, async t => {
   const { readProcessIdentity, sameProcessIdentity } = require('../../src/main/lifecycle/process-identity.ts');
   const child = spawn(process.execPath, ['-e', "process.stdin.resume(); process.stdin.on('end',()=>process.exit(0));"], {

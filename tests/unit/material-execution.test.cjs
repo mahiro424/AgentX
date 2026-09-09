@@ -7,7 +7,7 @@ const { randomUUID } = require('node:crypto');
 const { PassThrough } = require('node:stream');
 require('ts-node').register({ transpileOnly: true });
 
-for (const extension of ['txt', 'csv', 'docx']) test(`材料执行 ${extension}：首发续轮补充使用同一公开文本输入，保留版本与变化阻断`, async t => {
+for (const extension of ['txt', 'csv', 'docx', 'pdf']) test(`材料执行 ${extension}：首发续轮补充使用同一公开文本输入，保留版本与变化阻断`, async t => {
   const boundary = require('../../src/main/runtime/codex/process.ts');
   const { CodexTransport } = require('../../src/main/runtime/codex/transport.ts');
   const { ExecutionService } = require('../../src/main/services/execution.ts');
@@ -20,6 +20,8 @@ for (const extension of ['txt', 'csv', 'docx']) test(`材料执行 ${extension}�
     if (extension === 'docx') {
       const { Document, Paragraph, Packer } = require('docx');
       await fs.writeFile(filename, await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph(text)] }] })));
+    } else if (extension === 'pdf') {
+      await fs.writeFile(filename, require('../helpers/pdf-fixture.cjs').pdfBytes([text.includes('120') ? 'Budget 120' : 'Changed budget']));
     } else await fs.writeFile(filename, text);
   };
   await writeMaterial('指定事实：预算 120 元');
@@ -64,6 +66,10 @@ for (const extension of ['txt', 'csv', 'docx']) test(`材料执行 ${extension}�
   if (extension === 'csv') {
     assert.match(sent[0].text, /office-cli/); assert.match(sent[0].text, /ELECTRON_RUN_AS_NODE/);
     assert.match(sent[0].text, /公式未重算/); assert.match(sent[0].text, /Out-String/);
+  }
+  if (extension === 'pdf') {
+    assert.match(sent[0].text, /office-cli/); assert.match(sent[0].text, /pages/);
+    assert.match(sent[0].text, /不生成 PDF/);
   }
   if (extension === 'docx') {
     assert.match(sent[0].text, /office-cli/); assert.match(sent[0].text, /paragraphs/);

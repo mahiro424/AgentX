@@ -34,7 +34,7 @@ export async function readProcessIdentity(pid: number): Promise<ProcessIdentity 
   const output = await new Promise<string>((resolve, reject) => {
     execFile(executable, ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
       { windowsHide: true, shell: false, encoding: 'utf8', timeout: 10000, maxBuffer: 65536 }, (error, stdout) => {
-        if (error) reject(new Error(`无法读取进程身份，需核对（查询错误码 ${error.code ?? '未知'}）`));
+        if (error) reject(new Error(`无法读取进程身份，需核对（查询错误码 ${error.code ?? (error.killed ? '10 秒超时终止' : '未知')}${error.signal ? `；信号 ${error.signal}` : ''}）`));
         else resolve(stdout);
       });
   });
