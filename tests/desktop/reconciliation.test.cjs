@@ -37,7 +37,7 @@ test('状态诊断：已知与未知分别展示，失败保留草稿，核对�
   assert.equal(await page.getByRole('textbox', { name: '任务要求' }).inputValue(), '核对后仍保留这份输入');
 });
 
-test('孤立引擎记录：切换到其他会话也能核对，不依赖侧栏中存在原任务', { timeout: 45000 }, async t => {
+for (const outcome of ['pidReused', 'unavailable']) test(`孤立引擎记录：切换到其他会话仍可核对，${outcome === 'pidReused' ? '身份不匹配不操作进程' : '系统查询超时不解除占用'}`, { timeout: 45000 }, async t => {
   const fs = require('node:fs/promises');
   await fs.mkdir(path.resolve('.local-validation/m1-06'), { recursive: true });
   const data = await fs.mkdtemp(path.resolve('.local-validation/m1-06/orphan-ui-'));
@@ -50,20 +50,26 @@ test('孤立引擎记录：切换到其他会话也能核对，不依赖侧栏�
     operationId: randomUUID(), projectId: project.projectId, createdAt: now,
     identity: { pid: process.pid, parentPid: process.ppid, createdAt: '2020-01-01T00:00:00.000Z', executablePath: process.execPath } });
   const { app, page } = await launch(data); t.after(() => crashTestApp(app));
-  await app.evaluate(() => {
+  await app.evaluate((_electron, { identity, outcome }) => {
     const childProcess = process.getBuiltinModule('node:child_process');
     const original = childProcess.execFile;
+    globalThis.identityQueryCount = 0;
+    globalThis.identityQueryStarted = new Promise(resolve => { globalThis.markIdentityQueryStarted = resolve; });
     childProcess.execFile = function (file, args, options, callback) {
       const encoded = args?.indexOf('-EncodedCommand');
       const script = encoded >= 0 ? Buffer.from(args[encoded + 1], 'base64').toString('utf16le') : '';
-      if (!script.includes('Get-CimInstance -ClassName Win32_Process')) return original.call(this, file, args, options, callback);
-      const started = Date.now();
-      return original.call(this, file, args, options, (...result) => {
-        // 合成测试仅延后本实例只读进程查询的应答，不伪造 PID 身份或跳过真实系统查询。
-        setTimeout(() => callback(...result), Math.max(0, 6000 - (Date.now() - started)));
-      });
+      if (!script.includes('Get-CimInstance -ClassName Win32_Process') || !script.includes(`'ProcessId=${identity.pid}'`)) {
+        return original.call(this, file, args, options, callback);
+      }
+      globalThis.identityQueryCount++;
+      // 只控制本测试记录对应的系统应答；Main 解析、归属判断、IPC 与界面均走真实链路。
+      // 真实 Windows 身份读取另由 process-identity.test.cjs 覆盖，不把系统超时当作 PID 复用。
+      globalThis.finishIdentityQuery = () => outcome === 'unavailable'
+        ? callback(Object.assign(new Error('合成系统查询超时'), { code: 'ETIMEDOUT' }), '')
+        : callback(null, JSON.stringify(identity));
+      globalThis.markIdentityQueryStarted();
     };
-  });
+  }, { identity: { pid: process.pid, parentPid: process.ppid, createdAt: now, executablePath: process.execPath }, outcome });
   await page.getByRole('button', { name: '另一个未开始的会话', exact: true }).click();
   await page.getByRole('textbox', { name: '任务要求' }).fill('这是另一份草稿，不属于待核对记录');
   assert.equal(await page.getByRole('button', { name: '查看诊断', exact: true }).count(), 1);
@@ -71,11 +77,20 @@ test('孤立引擎记录：切换到其他会话也能核对，不依赖侧栏�
   const details = page.getByRole('region', { name: '状态核对详情' });
   await details.getByRole('status').filter({ hasText: '正在读取发送意图、进程身份和公开历史' }).waitFor();
   assert.equal(await details.getByRole('button', { name: '重新核对', exact: true }).isDisabled(), true);
-  // 真实 Windows 身份查询有 10 秒期限，不能用普通控件的 5 秒等待抢先判失败。
-  const started = Date.now();
-  await details.getByText('核对对象：尚未完成派发的准备记录', { exact: true }).waitFor({ timeout: 15000 });
-  t.diagnostic(`只读系统进程核对响应等待：${Date.now() - started} ms`);
-  await details.getByText('该 PID 已属于其他进程，不会操作它', { exact: true }).waitFor();
+  await app.evaluate(() => globalThis.identityQueryStarted);
+  assert.equal(await app.evaluate(() => globalThis.identityQueryCount), 1);
+  await app.evaluate(() => globalThis.finishIdentityQuery());
+  await details.getByText('核对对象：尚未完成派发的准备记录', { exact: true }).waitFor();
+  if (outcome === 'pidReused') {
+    await details.getByText('该 PID 已属于其他进程，不会操作它', { exact: true }).waitFor();
+    assert.equal(await details.getByText('进程身份未能核实', { exact: true }).count(), 0);
+  } else {
+    await details.getByText('进程身份未能核实', { exact: true }).waitFor();
+    await details.getByRole('alert').filter({ hasText: '无法读取进程身份，需核对（查询错误码 ETIMEDOUT）' }).waitFor();
+    assert.equal(await details.getByText('该 PID 已属于其他进程，不会操作它', { exact: true }).count(), 0);
+  }
+  await details.getByText('后台工作是否全部结束仍未确认', { exact: true }).waitFor();
+  assert.equal(await details.getByRole('button', { name: '重新核对', exact: true }).isEnabled(), true);
   assert.equal(await page.getByRole('textbox', { name: '任务要求' }).inputValue(), '这是另一份草稿，不属于待核对记录');
   assert.equal(await page.getByRole('button', { name: '发送', exact: true }).isDisabled(), true);
   assert.equal((await page.evaluate(() => window.agentx.getWorkspace())).tasks.length, 1);
